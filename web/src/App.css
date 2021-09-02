@@ -1,0 +1,222 @@
+html, body, #root, .App {
+  height: 100%;
+}
+
+.App {
+  /* text-align: center; */
+  display: flex;
+  flex-direction: column;
+}
+.main-content {
+  display: flex;
+  justify-content: center;
+}
+.padded {
+  max-width: 1240px;
+}
+.section-skeleton-container {
+  height: 100%;
+}
+.section-skeleton-container > span {
+  height: 100%;
+  /* line-height: 8; */
+}
+.section-skeleton-container > span > span {
+  height: calc(
+    calc(100% - (20px * 5)) / 5
+  );
+  margin-top: 10px;
+  margin-bottom: 10px;
+  /* line-height: 6 !important; */
+}
+div.filter-container {
+  /* Div selector for `important` to take precedence over bootstrap rule */
+  padding-left: 0!important;
+  padding-top: 0!important;
+}
+.filter-tag-container {
+
+}
+.filter-tag-container > * {
+  /* Margins combined with padding allow for spacing to remain cohesive even when the container wraps. */
+  margin-left: .5rem;
+  margin-top: .5rem;
+}
+.filter-tag-container > *:first-child {
+  /* margin-left: .5rem!important; */
+  /* Only the first chlid should have a margin-left. The elements are all separated from each other by the margin-right rule. */
+}
+/* .filter-container > * {
+  margin: .5rem!important;
+  margin-left: 0!important;
+}
+.filter-container > *:first-child {
+  margin-left: .5rem!important;
+} */
+.sort-select {
+  /* margin: .5rem!important; */
+  margin-top: .5rem!important;
+}
+/* .sort-select:first-child {
+  margin-left: auto!important;
+} */
+
+.pagination > * {
+  padding-bottom: 0;
+}
+
+.Post:first-child {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.Post.skeleton .post-header, .Post.skeleton .post-footer, .Post.skeleton .post-avatar, .section-header.skeleton > * {
+  background-color: rgb(227,227,227);
+}
+.Post.skeleton .post-footer > * {
+  visibility: hidden;
+}
+
+.modal-title {
+  text-transform: initial !important;
+}
+
+.hidden {
+  visibility: hidden;
+}
+.info h6 {
+  margin-bottom: 0!important;
+  /* font-weight: 600; */
+}
+.info .card-body, .info table {
+  padding: 0;
+  margin: 0;
+}
+.info table tbody tr:first-child td {
+  border-top: 0!important;
+}
+.info table tbody tr:nth-of-type(odd) td {
+  background-color: rgb(251, 251, 251);
+}
+.info table tbody tr:nth-of-type(even) td {
+  background-color: rgb(245, 245, 245)
+}
+.info table tbody td:first-child {
+  /* font-weight: 500; */
+}
+.info table tbody td {
+  /* border: 0!important; */
+}
+.bottom-table-container {
+  display: flex;
+  align-items: flex-start;
+}
+.status-table {
+  flex-grow: 1;
+}
+.environment-table {
+  flex-grow: 1;
+  /* width: 75%; */
+}
+.config-table {
+  /* flex-grow: 1; */
+}
+
+.chartjs-canvas {
+  width: 100% !important;
+  height: auto !important;
+}
+.outer-player-container.play {
+  /* background: linear-gradient(270deg, var(--primary) 50%, transparent 50%), linear-gradient(0deg, var(--primary) 50%, rgb(188, 189, 191) 50%); */
+  /* background-color: rgb(188, 189, 191); */
+  background-color: var(--primary);
+  background-image:
+      /* angle starts at quadrant I (so 270 degrees begins at the top) */
+        linear-gradient(270deg, transparent 50%, rgb(188, 189, 191) 50%),
+      /* ending angle */
+        linear-gradient(0deg, rgb(188, 189, 191) 50%, transparent 50%);
+}
+.inner-player-container {
+  background-color: white;
+  /* padding: 8px; */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 43px;
+  height: 43px;
+}
+.outer-player-container.play .audio-player {
+  /* margin-left: 4px; */
+  /* margin-bottom: 2px; */
+  /* font-size: 20px !important; */
+  font-size: 30px !important;
+  margin-left: 1px;
+}
+.outer-player-container.play.paused .audio-player {
+  margin-left: 4px;
+  font-size: 32px !important;
+}
+.audio-player {
+  /* font-size: 24px; */
+  font-size: 36px;
+  color: rgb(188, 189, 191);
+  /* border-radius: 100%; */
+  /* border: 1px solid black; */
+}
+
+.bottom-controls {
+  width: 100%;
+}
+.audio-progress {
+  height: 3px;
+  background-color: rgb(188, 189, 191);
+}
+.audio-progress .audio-progress-bar {
+  width: 25%;
+  height: 100%;
+}
+.audio-player-controls .audio-player {
+  display: none;
+  font-size: 16px;
+  margin-left: .5rem;
+  margin-right: .5rem;
+}
+.progress-time {
+  /* color: var(--dark); */
+  margin-left: .5rem;
+  margin-right: .5rem;
+}
+
+@media (max-width: 576px) {
+  .graph-controls {
+    flex-grow: 1;
+  }
+  .scrape-graph-container {
+    /* flex: 0; */
+    /* flex-grow: 2; */
+  }
+  .environment-table {
+    /* flex-basis: 0; */
+    /* flex-grow: 1; */
+    /* margin-left: 0 !important; */
+  }
+  .pagination.upper .page-item {
+    display: none;
+  }
+  .pagination.upper .page-item.active,
+  .pagination.upper .page-item.page-item-prev,
+  .pagination.upper .page-item.page-item-next,
+  .pagination.upper .page-item.page-item-first,
+  .pagination.upper .page-item.page-item-last {
+    display: list-item;
+  }
+  .pagination.upper .page-item.active .page-link::after {
+    content: var(--active-link-after-text);
+  }
+  .Post {
+    border: none!important;
+  }
+  .Post:nth-child(even) {
+    background-color: var(--light);
+  }
+}
