@@ -14,7 +14,7 @@ logging.getLogger('oauth2client.client').setLevel(logging.ERROR)
 def get_drive():
     gauth = GoogleAuth()
     scopes = ["https://www.googleapis.com/auth/drive"]
-    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_name("storage-298916-54bdfbd05712.json", scopes)
+    gauth.credentials = ServiceAccountCredentials.from_json_keyfile_name("drive_credentials.json", scopes)
     drive = GoogleDrive(gauth)
     return drive
 
