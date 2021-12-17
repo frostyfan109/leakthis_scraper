@@ -12,6 +12,7 @@ critical_log.txt
 non_implemented_urls.txt
 
 # App state
+pidfile
 status.json
 
 # DB
