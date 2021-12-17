@@ -101,7 +101,10 @@ class File(Base):
     file_name = Column(String, nullable=False)
     drive_id = Column(String, nullable=False)
     cover = Column(LargeBinary)
+    # Only set on files that weren't properly downloaded.
     unknown = Column(Boolean)
+    exception = Column(String)
+    traceback = Column(String)
 
     def get_post(self):
         return persistent_session.query(Post).filter_by(native_id=self.post_id).first()

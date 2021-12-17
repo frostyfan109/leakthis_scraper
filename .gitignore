@@ -1,5 +1,21 @@
-credentials.json
-drive_credentials.json
-geckodriver.log
+# Auto-generated caching
 .pytest_cache
 __pycache__
+
+# Credentials
+credentials.json
+drive_credentials.json
+
+# Logging / debug
+geckodriver.log
+critical_log.txt
+non_implemented_urls.txt
+
+# App state
+status.json
+
+# DB
+*.db
+
+# Backup
+*.bak

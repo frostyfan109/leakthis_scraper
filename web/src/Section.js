@@ -242,6 +242,8 @@ class Section extends QueryParamsComponent {
     })[0];
   }
   setPage(page, search) {
+    console.log(this.props.match.path);
+    console.log(generatePath(this.props.match.path, {page}), search)
     this.props.history.push({
       pathname: generatePath(this.props.match.path, {page}),
       search: search || this.props.location.search
@@ -292,6 +294,12 @@ class Section extends QueryParamsComponent {
     // Loading
     this.setState({ posts: null });
     const posts = await Api.getSectionPosts(this.props.section.path_name, page, {postCount: POST_COUNT, sortBy: sort, hidePinned, prefix, author});
+    if (this.getPage() - 1 !== posts.page) {
+      // The API returned a different page than requested.
+      // This happens when a page that doesn't exist (e.g. a page higher than the total number of pages) is requested.
+      // Set the website's page back to whatever was returned.
+      this.setPage(posts.page + 1);
+    }
     posts.posts.forEach((post) => {
       post.prefixes.forEach((prefix) => {
         // White is invisible against the white background, but black will also contrast

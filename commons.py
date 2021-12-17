@@ -12,6 +12,7 @@ def unabbr_number(value):
         "m": 1000000,
         "b": 1000000000
     }
+    value = value.strip()
     ending = endings.get(value[-1].lower())
     if not ending:
         return int(value)

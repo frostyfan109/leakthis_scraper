@@ -18,3 +18,4 @@ tinycss2==1.1.1
 selenium
 chromedriver_autoinstaller
 python-dotenv
+pyyaml

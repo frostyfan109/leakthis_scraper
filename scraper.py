@@ -4,6 +4,7 @@ import traceback
 import time
 import re
 import json
+import yaml
 import os
 import pickle
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from tinycss2 import parse_stylesheet, parse_declaration_list
 from urllib.parse import urlparse, parse_qsl
-from exceptions import AuthenticationError, MissingEnvironmentError
+from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError
 from db import session_factory, Post, File, Prefix
 from drive import upload_file, get_direct_url
 from url_parser import URLParser
@@ -19,10 +20,18 @@ from commons import assert_is_ok, unabbr_number, get_cover
 
 load_dotenv()
 
-default_log_level = logging.ERROR
+DEFAULT_CONFIG = {
+    "timeout_interval": 30000,
+    "update_posts": True,
+    "disable_db": False,
+    "account_credentials": None,
+    "print_posts_scraped": True,
+    "log_level": "ERROR"
+}
+
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__file__)
-logger.setLevel(default_log_level)
+logger.setLevel(logging.getLevelName(DEFAULT_CONFIG["log_level"]))
 
 def update_session(func):
     def wrapper(self, *args, **kwargs):
@@ -52,14 +61,60 @@ class Scraper:
             "description": "A place to discuss hip-hop, both commercial releases and leaks."
         }
     }
-    def __init__(self, account_credentials=None, interval=30000, skip_old=True, disable_db=False):
-        self.interval = interval # in ms
-        self.skip_old = skip_old # when disabled, scraped posts will be overwritten each time they are scraped.
-        self.disable_db = disable_db # when enabled, the scraper will not write to the database (for debugging purposes)
+    def __init__(self, config_path=None, credentials=None):
         self.base_url = "https://leaked.cx"
         self.token_expires = None
-        self.update_debug_config()
-        self.login(account_credentials)
+        self.logged_in_as = None
+        if config_path is not None:
+            self.config_path = config_path
+        elif os.environ.get("CONFIG_PATH") is not None:
+            self.config_path = os.environ.get("CONFIG_PATH")
+        else:
+            raise ConfigError("Could not locate path to config file. Try setting CONFIG_PATH in your environment or passing it to main.py.")
+        # `configure_config` is designed such that self.config is initially None,
+        # but it is set to DEFAULT_CONFIG for now in case the config file is invalid.
+        self.config = DEFAULT_CONFIG
+        self.update_config()
+        self.login(credentials)
+        # self.config = DEFAULT_CONFIG
+        # self.configure_config(config)
+
+    def update_config(self):
+        try:
+            with open(self.config_path, "r") as f:
+                self.configure_config(yaml.safe_load(f))
+        except FileNotFoundError:
+            raise ConfigError(f"Could not locate config file '${self.config_path}'.")
+        except yaml.YAMLError:
+            raise ConfigError(f"Could not parse YAML config file '${self.config_path}.")
+
+    def configure_config(self, new_config):
+        old_config = self.config
+        self.config = new_config
+
+        # self.interval = self.options.get("timeout_interval", 30000) # in ms
+        # self.update_posts = self.options.get("update_posts", True) # when enabled, scraped posts will be updated each time they are scraped.
+        # self.disable_db = self.options.get("disable_db", False) # when enabled, the scraper will not write to the database (for debugging purposes)
+        
+        # Set defaults if values omitted
+        for key in DEFAULT_CONFIG:
+            if self.config.get(key) is None: self.config[key] = DEFAULT_CONFIG[key]
+
+
+        """ Update global application/scraper state based on config changes """
+        # Login to website with new credentials
+        # This exposes credentials so it has been removed. And it was not really necessary.
+        # if old_config is None or self.config["account_credentials"] != old_config["account_credentials"]:
+        #     self.login(self.config["account_credentials"])
+
+        # Update the global log level of application as well as the scraper's log level
+        int_log_level = logging.getLevelName(self.config["log_level"])
+        if logger.getEffectiveLevel() != int_log_level:
+            logger.info(f"Setting log level to '{self.config['log_level']}'")
+        logging.root.setLevel(int_log_level)
+        logger.setLevel(int_log_level)
+
+            
 
     # @update_session
     def login(self, credentials=None):
@@ -77,7 +132,6 @@ class Scraper:
 
         self.session = requests.Session()
         self.session.headers.update({"User-Agent" : credentials.get("user-agent")})
-
         # Make sure to logout so that a new session is established
         # self.logout()
 
@@ -98,6 +152,9 @@ class Scraper:
             raise AuthenticationError(service=self.base_url, credentials_path=credentials_path)
         # self.session.cookies.set_cookie(requests.cookies.create_cookie(domain="https://leakth.is", name="xf_notice_dismiss", value="-1"))
         # print(self.session.cookies)
+
+        self.logged_in_as = credentials["username"]
+
 
     def pickle_session(self):
         with open("session_cookies", "wb") as f:
@@ -168,7 +225,9 @@ class Scraper:
             elif download.get("unknown") == True:
                 files.append({
                     "unknown": True,
-                    "url": url
+                    "url": url,
+                    "exception": download["exception"],
+                    "traceback": download["traceback"]
                 })
             else:
                 download_url = download["download_url"]
@@ -192,10 +251,11 @@ class Scraper:
     def parse_prefix(self, soup, prefix_tag):
         name = prefix_tag.find("span").text
 
-        session = disableable_session_factory(self.disable_db)
+        session = disableable_session_factory(self.config["disable_db"])
         existing_prefix = session.query(Prefix).filter_by(name=name).first()
         if existing_prefix != None:
             return
+        logger.info(f"Parsing new prefix '{name}'")
         url = prefix_tag["href"]
         query_args = dict(parse_qsl(urlparse(url).query))
         # For some reason, the ?prefix_id query param is always a list of length 1, i.e. ?prefix_id[0]={}
@@ -273,20 +333,39 @@ class Scraper:
         }
 
     def parse_post(self, soup, el, section, post_callback):
-        session = disableable_session_factory(self.disable_db)
+        session = disableable_session_factory(self.config["disable_db"])
 
         post_data = self.parse_post_data(soup, el)
 
         existing_post = session.query(Post).filter_by(native_id=post_data["native_id"]).first()
-        if existing_post != None and self.skip_old:
+        if existing_post is not None:
             # Post already indexed
-            logger.debug(f"Skipping already indexed post '{existing_post.title}'.")
+            if not self.config["update_posts"]:
+                logger.debug(f"Skipping already indexed post '{existing_post.title}'.")
+            else:
+                """ Update the basic post data """
+                # Has the user modified the title?
+                existing_post.title = post_data["title"]
+                # Has the user changed the prefixes on the post?
+                existing_post.prefixes = post_data["prefixes"]
+                # Has the user changed their name?
+                # Note: in the future, username changes could potentially be tracked.
+                existing_post.created_by = post_data["username"]
+                # Update engagement data
+                existing_post.reply_count = post_data["reply_count"]
+                existing_post.view_count = post_data["view_count"]
+                existing_post.pinned = post_data["is_pinned"]
+                # Posts can be moved to different sections.
+                existing_post.section_id = self.get_section_id(section)
+                # Note: in the future, post_content could also be updated, e.g. useful if URLs have been updated.
+                session.commit()
             session.close()
             return
+        
 
         post_content = self.parse_post_content(post_data["post_url"])
 
-        if self.debug_config["print_posts_scraped"] == True:
+        if self.config["print_posts_scraped"] == True:
             print(post_data["title"])
 
         post = Post(
@@ -314,7 +393,9 @@ class Scraper:
                     url=file["url"],
                     download_url="",
                     drive_id="",
-                    unknown=True
+                    unknown=True,
+                    exception=str(file["exception"]),
+                    traceback=file["traceback"]
                 )
             else:
                 file = File(
@@ -335,11 +416,20 @@ class Scraper:
 
     def parse_posts(self, content, section, post_callback=None):
         post_ids = []
-        soup = BeautifulSoup(content, "html.parser")
-        for el in soup.select(".structItem--thread"):
-            post_id = self.parse_post(soup, el, section, post_callback)
-            post_ids.append(post_id)
+        try:
+            soup = BeautifulSoup(content, "html.parser")
+            for el in soup.select(".structItem--thread"):
+                post_id = self.parse_post(soup, el, section, post_callback)
+                post_ids.append(post_id)
 
+        except KeyboardInterrupt: raise e
+        except Exception as e:
+            """ This is the second critical loop in scraping execution. We don't want to halt scraping just because
+            one page failed (e.g. if it is running on the first 10 pages and the 2nd page fails it won't scrape the 3-10).
+            Instead, we will skip the page for now and try again next loop.
+            """
+            traceback.print_exc()
+            self.log_critical(e)
         return post_ids
 
     # @update_session
@@ -356,11 +446,11 @@ class Scraper:
             posts += self.parse_posts(res.content, section, callback)
         return posts
 
-    def scrape(self, section, callback, pages=4):
+    def scrape(self, section, callback, pages=5):
         # Scrape `pages` pages initially. Then only check the first page afterwards.
         while True:
             try:
-                self.update_debug_config()
+                self.update_config()
                 self.scrape_posts(section, pages, callback)
                 # Pages should be >1 on first loop (where you want to scrape extra to catch up with when the scraper wasn't running)
                 # Set the pages back to only 1 after first loop to avoid scraping these extra pages again, because it's extremely unlikely
@@ -374,14 +464,12 @@ class Scraper:
                 # refusals, though still treat these as critical to be transparent.
                 traceback.print_exc()
                 # Dump the traceback to a log for further reference.
-                with open("critical_log.txt", "a+") as f:
-                    f.write(traceback.format_exc() + "\n")
-                self.update_status(last_error={"error": str(e), "traceback": traceback.format_exc(), "time": time.time()})
+                self.log_critical(e)
 
             self.update_status(last_scraped=time.time())
 
-            logger.debug("Sleeping for " + str(self.interval/1000) + "s.")
-            time.sleep(self.interval/1000)
+            logger.debug("Sleeping for " + str(self.config["timeout_interval"]/1000) + "s.")
+            time.sleep(self.config["timeout_interval"]/1000)
 
     def scrape_hip_hop_leaks(self, *args, **kwargs):
         return self.scrape("hip-hop-leaks", *args, **kwargs)
@@ -389,15 +477,13 @@ class Scraper:
     def scrape_hip_hop_discussion(self, *args, **kwargs):
         return self.scrape("hip-hop-discussion", *args, **kwargs)
 
-    def update_debug_config(self):
-        with open(os.path.join(os.path.dirname(__file__), "debug_config.json"), "r") as f:
-            self.debug_config = json.load(f)
-        log_level = self.debug_config["log_level"]
-        if log_level == None: log_level = default_log_level
-        if logger.getEffectiveLevel() != logging.getLevelName(log_level):
-            print(f"Setting log level to '{log_level}'")
-        logging.root.setLevel(logging.getLevelName(log_level))
-        logger.setLevel(logging.getLevelName(log_level))
+    """ Log the error and dump the traceback to a text log for further reference. 
+        This method is expected to be called within the exception context
+        (s.t. traceback works properly). """
+    def log_critical(self, e):
+        with open("critical_log.txt", "a+") as f:
+            f.write(traceback.format_exc() + "\n")
+        self.update_status(last_error={"error": str(e), "traceback": traceback.format_exc(), "time": time.time()})
 
     def get_status_data(self):
         with open("status.json", "r") as f:

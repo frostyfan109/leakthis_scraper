@@ -46,28 +46,48 @@ class SectionEntries(Resource):
         # 2) ORDER_BY posts.id DESC
         # 3) LIMIT `per_page`
         # 4) OFFSET `per_page * page`
-        filtered = session.query(Post).filter_by(section_id=section_id)
-        if prefix_id is not None:
-            prefix = session.query(Prefix).filter_by(prefix_id=prefix_id).first()
-            filtered = filtered.filter(Post.prefix == prefix.name)
-        if author is not None:
-            filtered = filtered.filter(Post.created_by == author)
-        if hide_pinned:
-            filtered = filtered.filter(Post.pinned == False)
-        if sort_by == "latest":
-            ordered = filtered.order_by(Post.created.desc())
-        elif sort_by == "popular":
-            ordered = filtered.order_by(Post.view_count.desc())
-        elif sort_by == "active":
-            ordered = filtered.order_by(Post.reply_count.desc())
-        posts = ordered.limit(per_page).offset(per_page*page)
+        def filter_chain(filtered):
+            if prefix_id is not None:
+                prefix = session.query(Prefix).filter_by(prefix_id=prefix_id).first()
+                # filtered = filtered.filter(Post.prefix == prefix.name)
+                # Post.prefixes is a JSON wrapper abstraction that is really just a Unicode string.
+                # This makes it difficult to do performant sorting on it, when it needs to be treated as a list.
+                filtered = filtered.filter(Post.prefixes.contains(prefix.name)) 
+            if author is not None:
+                filtered = filtered.filter(Post.created_by == author)
+            # if hide_pinned:
+                # filtered = filtered.filter(Post.pinned == False)
+            if sort_by == "latest":
+                ordered = filtered.order_by(Post.created.desc())
+            elif sort_by == "popular":
+                ordered = filtered.order_by(Post.view_count.desc())
+            elif sort_by == "active":
+                ordered = filtered.order_by(Post.reply_count.desc())
+            return ordered
+
+        non_pinned = filter_chain(session.query(Post).filter((Post.section_id == section_id) & (Post.pinned == False)))
+        # Only the first page should have pinned posts
+        if page == 0:
+            pinned = filter_chain(session.query(Post).filter((Post.section_id == section_id) & (Post.pinned == True)))
+        else:
+            # Create an empty query
+            pinned = session.query(Post).filter(False)
+
+        num_pages = ceil(non_pinned.count() / per_page)
+        # If the page number is greater than the total number of pages, return the last page.
+        if page > num_pages:
+            # `page` goes from 0 to `num_pages - 1`
+            page = num_pages - 1
+
+        # Pinned posts don't count towards the pagination limit, i.e., the first page will have the pinned posts + normal pagination limit.
+        posts = pinned.all() + non_pinned.limit(per_page).offset(per_page*page).all()
 
         session.close()
 
         return {
             "posts": [post.serialize() for post in posts],
-            "pages": ceil(filtered.count() / per_page),
-            "total": filtered.count(),
+            "pages": num_pages,
+            "total": non_pinned.count(),
             "page": page,
             "per_page": per_page
         }

@@ -1,13 +1,14 @@
 import requests
 import logging
 import re
+import traceback
 from time import time
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit
 from abc import ABC, abstractmethod
 from exceptions import FileNotFoundError
 from commons import assert_is_ok
-from webdriver import chromedriver
+from webdriver import create_chrome_driver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -82,6 +83,8 @@ class OnlyFilesIo(HostingService):
         res = session.get(url)
         soup = BeautifulSoup(res.content, "html.parser")
         audio = soup.select_one("audio")
+        if audio is None:
+            raise FileNotFoundError(url)
         return self.base_url + audio["src"]
     
     def parse_file_name(self, url):
@@ -156,6 +159,7 @@ class DBREE(HostingService):
             logger.critical(f"Could not bypass DDOS protection on DBREE after {retry_count + 1} attempts. Giving up.")
             return
         try:
+            chromedriver = create_chrome_driver()
             chromedriver.get(self.base_url)
             wait = WebDriverWait(chromedriver, max_timeout, poll_frequency=1)
             wait.until(lambda x: "DBREE" in chromedriver.title)
@@ -166,6 +170,8 @@ class DBREE(HostingService):
             new_timeout = max_timeout * 2
             logger.critical(f"Failed to bypass DDOS protection on DBREE. Retrying for {new_timeout} seconds (attempt {retry_count + 1}).")
             return self.bypass_ddos_protection(new_timeout, retry_count + 1)
+        finally:
+            chromedriver.close()
 
     def assert_exists(self, url, res):
         if urlsplit(res.url).path == "/index.html":
@@ -244,10 +250,11 @@ class URLParser:
                     "download_url": download_url,
                     "stream": stream
                 }
-            except FileNotFoundError as e:
-                # File probably doesn't exist
-                return {
-                    "unknown": True
-                }
             except Exception as e:
-                raise e
+                # Either file doesn't exist (FileNotFoundError) or something went wrong (e.g. connection was refused).
+                logger.error(e)
+                return {
+                    "unknown": True,
+                    "exception": e,
+                    "traceback": traceback.print_exc()
+                }

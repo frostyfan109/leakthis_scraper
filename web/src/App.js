@@ -124,6 +124,9 @@ class App extends Component {
                 <Section section={null}/>
               </Route>
             )}
+            <Route path="/info">
+              <Info info={this.state.info} updateInfo={this.getInfo}/>
+            </Route>
             {
               Object.entries(this.state.sections || {}).map(([sectionName, section]) => {
                 return (
@@ -133,11 +136,8 @@ class App extends Component {
                 );
               })
             }
-            <Route path={this.createSectionPath("/")}>
+            <Route path={this.createSectionPath("")}>
               <Section section={this.state.defaultSection} prefixes={this.state.prefixes}/>
-            </Route>
-            <Route path="/info">
-              <Info info={this.state.info} updateInfo={this.getInfo}/>
             </Route>
           </Switch>
         </div>
