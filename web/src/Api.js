@@ -1,12 +1,5 @@
 import qs from 'qs';
-import { OMIT_UNKNOWN_FILES } from './config.js';
-
-export let BASE_URL;
-if (process.env.NODE_ENV === "development") {
-  BASE_URL =  "http://localhost:8002";
-} else {
-  BASE_URL = window.location.origin;
-}
+import { API_URL as BASE_URL, OMIT_UNKNOWN_FILES } from './config.js';
 
 export class Api {
   async getSectionPosts(sectionName, page, query) {
@@ -22,7 +15,7 @@ export class Api {
     }
     return posts;
   }
-  async download(file) {
+  async download_url(file) {
     const driveRes = await fetch(`${BASE_URL}/download/${file.drive_id}`);
     const driveUrl = await driveRes.json();
     return driveUrl;

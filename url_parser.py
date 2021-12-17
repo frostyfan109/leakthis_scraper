@@ -5,16 +5,15 @@ from time import time
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit
 from abc import ABC, abstractmethod
+from exceptions import FileNotFoundError
 from commons import assert_is_ok
+from webdriver import chromedriver
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
 
 logger = logging.getLogger(__file__)
 session = requests.Session()
-
-
-class FileNotFoundError(Exception):
-    def __init__(self, url):
-        super().__init__(f"File not found at '{url}'.")
-        self.url = url
 
 class Netloc:
     def __init__(self, url):
@@ -72,6 +71,26 @@ class HostingService(ABC):
             netloc.domain_name == host_netloc.domain_name
         )
 
+class OnlyFilesIo(HostingService):
+    name = "OnlyFiles (Io)"
+    base_url = "https://onlyfiles.io/"
+
+    def parse_download_url(self, url):
+        # It seems that this service places audio pages under the /f/{ID} route, and audio files under
+        # the /get/{ID}/{FILE_NAME} route, but it's more consistent to just read the <audio> src attr
+        # instead of implicitly constructing it. 
+        res = session.get(url)
+        soup = BeautifulSoup(res.content, "html.parser")
+        audio = soup.select_one("audio")
+        return self.base_url + audio["src"]
+    
+    def parse_file_name(self, url):
+        res = session.get(url)
+        soup = BeautifulSoup(res.content, "html.parser")
+        file_name = soup.select_one(".songtitle").text
+        return file_name
+        
+
 class OnlyFilesBiz(HostingService):
     name = "OnlyFiles (Biz)"
     base_url = "https://www.onlyfiles.biz/"
@@ -126,6 +145,27 @@ class OnlyFilesCC(HostingService):
 class DBREE(HostingService):
     name = "DBREE"
     base_url = "https://dbree.org/"
+    base_timeout = 15 # seconds
+
+    def __init__(self):
+        self.bypass_ddos_protection(self.base_timeout)
+
+    def bypass_ddos_protection(self, max_timeout, retry_count=0):
+        # If it has failed 4 times ()
+        if max_timeout > self.base_timeout * 4:
+            logger.critical(f"Could not bypass DDOS protection on DBREE after {retry_count + 1} attempts. Giving up.")
+            return
+        try:
+            chromedriver.get(self.base_url)
+            wait = WebDriverWait(chromedriver, max_timeout, poll_frequency=1)
+            wait.until(lambda x: "DBREE" in chromedriver.title)
+            for cookie in chromedriver.get_cookies():
+                session.cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie["path"])
+        except:
+            # Not actual backoff, immediately retry for twice the interval, i.e. base_timeout * 2^retry_count
+            new_timeout = max_timeout * 2
+            logger.critical(f"Failed to bypass DDOS protection on DBREE. Retrying for {new_timeout} seconds (attempt {retry_count + 1}).")
+            return self.bypass_ddos_protection(new_timeout, retry_count + 1)
 
     def assert_exists(self, url, res):
         if urlsplit(res.url).path == "/index.html":
@@ -171,7 +211,7 @@ class AnonFiles(HostingService):
         soup = BeautifulSoup(res.content, "html.parser")
         return soup.select_one(".top-wrapper").select_one("h1").text
 
-Hosts = [OnlyFilesBiz(), OnlyFilesCC(), DBREE(), AnonFiles()]
+Hosts = [OnlyFilesIo(), OnlyFilesBiz(), OnlyFilesCC(), DBREE(), AnonFiles()]
 
 class URLParser:
     def __init__(self):

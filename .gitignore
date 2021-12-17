@@ -1,4 +1,5 @@
 credentials.json
 drive_credentials.json
+geckodriver.log
 .pytest_cache
 __pycache__

@@ -37,9 +37,10 @@ class Post extends QueryParamsComponent {
     let { post, skeleton, setPlaying, setPaused, playing: playingObj } = this.props;
     if (skeleton) {
       post = {
-        prefix: {},
+        prefixes: [],
         files: []
       };
+      //
       setPlaying = () => {};
       setPaused = () => {}
     }
@@ -86,17 +87,17 @@ class Post extends QueryParamsComponent {
             <div className="media-body mr-3 mr-md-0">
               <h6 className="post-header d-inline d-md-flex align-items-center">
                 {
-                  post.prefix !== null && (
-                  <>
-                  <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(post.prefix.prefix_id)}>
-                    <span className="d-flex justify-content-center align-items-center">
-                      {/* Badge has 3px margin-y on default. Add 2px to margin-top so adjust for text alignment. */}
-                      <Badge style={{color: post.prefix.text_color, backgroundColor: post.prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>{post.prefix.name}</Badge>
-                    </span>
-                  </a>
-                  &nbsp;
-                  </>
-                  )
+                  post.prefixes.map((prefix) => (
+                    <>
+                    <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(prefix.prefix_id)}>
+                      <span className="d-flex justify-content-center align-items-center">
+                        {/* Badge has 3px margin-y on default. Add 2px to margin-top so adjust for text alignment. */}
+                        <Badge style={{color: prefix.text_color, backgroundColor: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>{prefix.name}</Badge>
+                      </span>
+                    </a>
+                    &nbsp;
+                    </>
+                  ))
                 }
                 <a href="javascript:void(0);" className="text-body d-inline">{post.title}</a>
               </h6>
@@ -292,10 +293,11 @@ class Section extends QueryParamsComponent {
     this.setState({ posts: null });
     const posts = await Api.getSectionPosts(this.props.section.path_name, page, {postCount: POST_COUNT, sortBy: sort, hidePinned, prefix, author});
     posts.posts.forEach((post) => {
-      if (post.prefix) {
-        // White is invisible against the white background, but black will also contrast with any color white does (other than black, which no prefixes use).
-        if (post.prefix.bg_color === "white") post.prefix.bg_color = "black";
-      }
+      post.prefixes.forEach((prefix) => {
+        // White is invisible against the white background, but black will also contrast
+        // with any color white does (other than black, which no prefixes use).
+        if (prefix.bg_color === "white") prefix.bg_color = "black";
+      });
       Object.defineProperty(post, "downloading", {
         get: function() {
           return this.files.length > 0 && !this.files.every((file) => file.hasOwnProperty("bufferedDownload"));

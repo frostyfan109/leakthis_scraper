@@ -2,7 +2,7 @@ import React, { Component } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
 import { Line } from 'react-chartjs-2';
-import { Table, Modal, Form, Card, ListGroup } from 'react-bootstrap';
+import { Table, Modal, Form, Card, ListGroup, Tabs, Tab } from 'react-bootstrap';
 import { FaChartBar } from 'react-icons/fa';
 import { linkToPost } from './common.js';
 import Api from './Api.js';
@@ -205,7 +205,7 @@ export default class Info extends Component {
                       <a href="javascript:void(0);"
                          className="text-reset"
                          onClick={(e) => this.setState({dependencyModal: true})}>
-                        {environment.dependencies.map((d) => d.name).join(", ")}
+                        {environment.dependencies.find((d) => d.name === "Installed").dependencies.map((d) => d.name).join(", ")}
                       </a>
                     </td>
                   </tr>
@@ -309,20 +309,28 @@ export default class Info extends Component {
           <Modal.Header closeButton>
             <Modal.Title id="dependencyModalTitle">Dependencies</Modal.Title>
           </Modal.Header>
-          <Modal.Body className="p-0">
+          <Modal.Body className="p-3">
             {/*<ListGroup>
               {environment.dependencies.map((dependency) => <ListGroup.Item className="p-1" key={dependency}>{dependency}</ListGroup.Item>)}
             </ListGroup>*/}
-            <Table striped>
-              <tbody>
-                {environment.dependencies.map((dependency) => (
-                    <tr key={dependency.name}>
-                      <td>{dependency.name}</td>
-                      <td>{dependency.version}</td>
-                    </tr>
-                ))}
-              </tbody>
-            </Table>
+            <Tabs defaultActiveKey={environment.dependencies[0].name} id="dependencyTabs">
+              {
+                environment.dependencies.map((dependencyData) => (
+                  <Tab eventKey={dependencyData.name} key={dependencyData.name} title={dependencyData.name}>
+                    <Table striped>
+                      <tbody>
+                        {dependencyData.dependencies.map((dependency) => (
+                            <tr key={dependency.name}>
+                              <td>{dependency.name}</td>
+                              <td>{dependency.version}</td>
+                            </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </Tab>
+                ))
+              }
+            </Tabs>
           </Modal.Body>
         </Modal>
       </div>

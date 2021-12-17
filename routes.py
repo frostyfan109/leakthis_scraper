@@ -1,9 +1,9 @@
 import logging
-import argparse
 import json
 import platform
 import sys
 import os
+import pkg_resources
 from math import ceil
 from importlib_metadata import distributions
 from datetime import datetime, timezone
@@ -11,10 +11,11 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import extract, func
 from flask import Response, request, send_file, stream_with_context
 from flask_restplus import Resource, inputs
+from mimetypes import guess_type
 from api import app, api, Flask_Session
 from db import Post, File, Prefix
 from main import Scraper
-from drive import get_direct_url
+from drive import get_direct_url, get_direct_url2, get_file
 
 logger = logging.getLogger(__file__)
 
@@ -175,8 +176,12 @@ class Info(Resource):
             "default": 12,
             "range": cur_range if sort == "months" else None
         }
-
         session.close()
+
+        with open(os.path.join(os.path.dirname(__file__), "requirements.txt"), "r") as req_txt:
+            required_dependencies = [{"name": req.name, "version": str(req.specifier)} for req in pkg_resources.parse_requirements(req_txt)]
+        installed_dependencies = [{"name": dist.metadata["name"], "version": dist.version} for dist in list(distributions())]
+
         return {
             "data": {
                 "scrape_data": {
@@ -203,7 +208,16 @@ class Info(Resource):
                 "release": platform.version(),
                 "version": [sys.version_info.major, sys.version_info.minor, sys.version_info.micro],
                 "virtualenv": "VIRTUAL_ENV" in os.environ,
-                "dependencies": [{"name": dist.metadata["name"], "version": dist.version} for dist in list(distributions())],
+                "dependencies": [
+                    {
+                        "name": "Required",
+                        "dependencies": required_dependencies
+                    },
+                    {
+                        "name": "Installed",
+                        "dependencies": installed_dependencies
+                    }
+                ],
                 "timezone": str(datetime.now(timezone.utc).astimezone().tzinfo)
             },
             "meta": {
@@ -211,10 +225,40 @@ class Info(Resource):
             }
         }
 
-@api.route("/download/<string:drive_id>")
-class Download(Resource):
+@api.route("/download_url/<string:drive_id>")
+class DownloadURL(Resource):
     def get(self, drive_id):
-        return get_direct_url(drive_id)
+        return get_direct_url2(drive_id)
+
+direct_download_parser = api.parser()
+direct_download_parser.add_argument("download", type=inputs.boolean, help="Download as attachment rather than inline.", location="args", default=True, required=False)
+@api.route("/download/<string:drive_id>")
+class DirectDownload(Resource):
+    def get(self, drive_id):
+        args = direct_download_parser.parse_args()
+
+        attachment = args.get("download", True)
+
+        session = Flask_Session()
+        file = session.query(File).filter_by(drive_id=drive_id).first()
+        drive_file = get_file(drive_id)
+        drive_file.FetchContent()
+        # Could also get Drive's inferred mimetype from file.FetchMetadata() and file["mimeType"],
+        # but it's more accurate to just go off of the file name in the first place.
+        file_name = file.file_name
+        mimetype = guess_type(file.file_name)[0]
+        session.close()
+        response = send_file(
+            drive_file.content,
+            # Docs say that download_name is supported in Flask 2.0.x, but apparently it isn't.
+            # download_name=file_name,
+            # Sets Content-Disposition
+            # as_attachment=False,
+            # attachment_filename=file_name,
+            mimetype=mimetype
+        )
+        response.headers.set("Content-Disposition", f'{"attachment" if attachment else "inline"}; filename="{file_name}"')
+        return response
 
 @api.route("/file/<int:file_id>/cover")
 class FileCover(Resource):
@@ -260,19 +304,3 @@ class Config(Resource):
         return config
         # print_posts_scraped = form.get("print_posts_scraped")
         # log_level = form.get("log_level")
-
-
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Specify API arguments")
-    parser.add_argument("--host", action="store", default="0.0.0.0")
-    parser.add_argument("--port", action="store", default=8001, type=int)
-    parser.add_argument("-r", "--reloader", help="Automatically restart API upon modification", action="store_true", default=True)
-    args = parser.parse_args()
-
-    app.run(
-        host=args.host,
-        port=args.port,
-        use_reloader=args.reloader
-    )

@@ -1,8 +1,10 @@
+import jsonpickle
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, Numeric, Boolean, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.types import TypeDecorator, String
+from sqlalchemy.types import TypeDecorator, String, Unicode
 from datetime import datetime
+from drive import get_direct_url
 from url_parser import URLParser
 
 # Have absolutely no idea if setting check_same_thread to False is safe,
@@ -24,6 +26,18 @@ def flask_session_factory():
 
 persistent_session = session_factory()
 
+class JsonType(TypeDecorator):
+    impl = Unicode
+
+    def process_bind_param(self, value, engine):
+        return str(jsonpickle.encode(value))
+
+    def process_result_value(self, value, engine):
+        if value:
+            return jsonpickle.decode(value)
+        else:
+            return None
+
 class Post(Base):
     __tablename__ = "posts"
 
@@ -32,6 +46,7 @@ class Post(Base):
     section_id = Column(Integer, nullable=False)
     title = Column(String, nullable=False)
     url = Column(String, nullable=False)
+    prefixes = Column(JsonType())
     prefix = Column(String)
     created_by = Column(String, nullable=False)
     created = Column(DateTime, nullable=False)
@@ -47,18 +62,18 @@ class Post(Base):
     def get_files(self):
         return persistent_session.query(File).filter_by(post_id=self.native_id)
 
-    def get_prefix(self):
-        return persistent_session.query(Prefix).filter_by(name=self.prefix).first()
+    def get_prefix(self, prefix_name):
+        return persistent_session.query(Prefix).filter_by(name=prefix_name).first()
 
     def serialize(self):
-        prefix = self.get_prefix()
         return {
             "id": self.id,
             "native_id": self.native_id,
             "section_id": self.section_id,
             "title": self.title,
             "url": self.url,
-            "prefix": prefix.serialize() if prefix is not None else None,
+            "prefixes": [self.get_prefix(prefix).serialize() for prefix in self.prefixes],
+            # "prefix": prefix.serialize() if prefix is not None else None,
             "created_by": self.created_by,
             "created": self.created.timestamp(),
             "reply_count": self.reply_count,
@@ -103,6 +118,7 @@ class File(Base):
             "download_url": self.download_url,
             "file_name": self.file_name,
             "drive_id": self.drive_id,
+            # "direct_url": get_direct_url(self.drive_id),
             # "cover": self.cover,
             "unknown": self.unknown,
 
