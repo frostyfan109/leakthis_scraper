@@ -4,6 +4,7 @@ __pycache__
 
 # Credentials
 credentials.json
+credentials.yaml
 drive_credentials.json
 
 # Logging / debug

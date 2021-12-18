@@ -1,7 +1,5 @@
----
-print_posts_scraped: true
+disable_db: false
 log_level: DEBUG
+print_posts_scraped: false
 timeout_interval: 30000
 update_posts: true
-disable_db: false
-# account_credentials: null

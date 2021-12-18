@@ -158,6 +158,7 @@ class DBREE(HostingService):
         if max_timeout > self.base_timeout * 4:
             logger.critical(f"Could not bypass DDOS protection on DBREE after {retry_count + 1} attempts. Giving up.")
             return
+        chromedriver = None
         try:
             chromedriver = create_chrome_driver()
             chromedriver.get(self.base_url)
@@ -171,7 +172,7 @@ class DBREE(HostingService):
             logger.critical(f"Failed to bypass DDOS protection on DBREE. Retrying for {new_timeout} seconds (attempt {retry_count + 1}).")
             return self.bypass_ddos_protection(new_timeout, retry_count + 1)
         finally:
-            chromedriver.close()
+            if chromedriver is not None: chromedriver.close()
 
     def assert_exists(self, url, res):
         if urlsplit(res.url).path == "/index.html":

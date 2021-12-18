@@ -89,7 +89,7 @@ class Post extends QueryParamsComponent {
                 {
                   post.prefixes.map((prefix) => (
                     <>
-                    <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(prefix.prefix_id)}>
+                    <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(prefix.id)}>
                       <span className="d-flex justify-content-center align-items-center">
                         {/* Badge has 3px margin-y on default. Add 2px to margin-top so adjust for text alignment. */}
                         <Badge style={{color: prefix.text_color, backgroundColor: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>{prefix.name}</Badge>
@@ -230,7 +230,7 @@ class Section extends QueryParamsComponent {
     this.setQueryParams({"prefix": undefined})
   }
   parsePrefix() {
-    return this.getPrefix({prefix_id: parseInt(this.getQuery().prefix)});
+    return this.getPrefix({id: parseInt(this.getQuery().prefix)});
   }
   getPrefix(props) {
     return this.props.prefixes.filter((prefix) => {

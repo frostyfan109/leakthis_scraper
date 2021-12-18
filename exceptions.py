@@ -4,10 +4,9 @@ class FileNotFoundError(Exception):
         self.url = url
 
 class AuthenticationError(Exception):
-    def __init__(self, service, credentials_path):
-        super().__init__(f'Failed to authenticate with service "{service}". Credentials path: "{credentials_path}"')
+    def __init__(self, service):
+        super().__init__(f'Failed to authenticate with service "{service}".')
         self.service = service
-        self.credentials_path = credentials_path
 
 class MissingEnvironmentError(Exception):
     def __init__(self, env_key):

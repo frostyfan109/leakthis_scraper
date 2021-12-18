@@ -5,7 +5,7 @@ export class Api {
   async getSectionPosts(sectionName, page, query) {
     const { postCount, sortBy, hidePinned, prefix, author } = query;
     page -= 1; // api starts pages at 0
-    const queryString = qs.stringify({ posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_id: prefix, author: author });
+    const queryString = qs.stringify({ posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_raw_id: prefix, author: author });
     const res = await fetch(`${BASE_URL}/section/${sectionName}/${page}?${queryString}`);
     const posts = await res.json();
     if (OMIT_UNKNOWN_FILES) {

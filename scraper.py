@@ -4,7 +4,6 @@ import traceback
 import time
 import re
 import json
-import yaml
 import os
 import pickle
 from dotenv import load_dotenv
@@ -15,6 +14,7 @@ from urllib.parse import urlparse, parse_qsl
 from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError
 from db import session_factory, Post, File, Prefix
 from drive import upload_file, get_direct_url
+from config import load_config, load_credentials
 from url_parser import URLParser
 from commons import assert_is_ok, unabbr_number, get_cover
 
@@ -61,16 +61,9 @@ class Scraper:
             "description": "A place to discuss hip-hop, both commercial releases and leaks."
         }
     }
-    def __init__(self, config_path=None, credentials=None):
+    def __init__(self, credentials=None):
         self.base_url = "https://leaked.cx"
         self.token_expires = None
-        self.logged_in_as = None
-        if config_path is not None:
-            self.config_path = config_path
-        elif os.environ.get("CONFIG_PATH") is not None:
-            self.config_path = os.environ.get("CONFIG_PATH")
-        else:
-            raise ConfigError("Could not locate path to config file. Try setting CONFIG_PATH in your environment or passing it to main.py.")
         # `configure_config` is designed such that self.config is initially None,
         # but it is set to DEFAULT_CONFIG for now in case the config file is invalid.
         self.config = DEFAULT_CONFIG
@@ -80,13 +73,7 @@ class Scraper:
         # self.configure_config(config)
 
     def update_config(self):
-        try:
-            with open(self.config_path, "r") as f:
-                self.configure_config(yaml.safe_load(f))
-        except FileNotFoundError:
-            raise ConfigError(f"Could not locate config file '${self.config_path}'.")
-        except yaml.YAMLError:
-            raise ConfigError(f"Could not parse YAML config file '${self.config_path}.")
+        self.configure_config(load_config())
 
     def configure_config(self, new_config):
         old_config = self.config
@@ -118,17 +105,13 @@ class Scraper:
 
     # @update_session
     def login(self, credentials=None):
-        credentials_path = None
         if credentials is None:
-            credentials_path = os.environ.get("LEAKTHIS_CREDENTIALS_FILE", "")
-            if credentials_path == "":
-                raise MissingEnvironmentError("LEAKTHIS_CREDENTIALS_FILE")
-        if isinstance(credentials, str):
-            # credentials is a file path
-            credentials_path = credentials
-        if credentials_path is not None:
-            with open(credentials_path, "r") as f:
-                credentials = json.load(f)
+            credentials = load_credentials()
+
+        self.update_status(leakthis_username=credentials["username"])
+        # Store as asterisks of same length
+        self.update_status(leakthis_password="*"*len(credentials["password"]))
+        self.update_status(leakthis_user_agent=credentials.get("user-agent", "None"))
 
         self.session = requests.Session()
         self.session.headers.update({"User-Agent" : credentials.get("user-agent")})
@@ -149,11 +132,11 @@ class Scraper:
                 self.token_expires = cookie.expires
         if self.token_expires is None:
             # Login failed
-            raise AuthenticationError(service=self.base_url, credentials_path=credentials_path)
+            raise AuthenticationError(service=self.base_url)
         # self.session.cookies.set_cookie(requests.cookies.create_cookie(domain="https://leakth.is", name="xf_notice_dismiss", value="-1"))
         # print(self.session.cookies)
 
-        self.logged_in_as = credentials["username"]
+        logger.info(f"Logged into Leakthis as user '{credentials['username']}'")
 
 
     def pickle_session(self):
@@ -219,7 +202,7 @@ class Scraper:
             download = URLParser().download(url)
             # Make sure the URL is associated with a supported hosting service
             if download is None:
-                logger.debug(f"Could not identify associated service for post '{post_url}'")
+                logger.warning(f"Could not identify associated service for post '{post_url}'")
                 with open("non_implemented_urls.txt", "a+") as f:
                     f.write(post_url + " " + url + "\n")
             elif download.get("unknown") == True:
@@ -298,7 +281,7 @@ class Scraper:
 
         title_el = el.select_one(".structItem-title")
         title = title_el.find("a", class_="")
-        logger.debug(f"Parsing post '{title.text}'")
+        logger.info(f"Parsing post '{title.text}'")
 
         prefixes = title_el.find_all("a", class_="labelLink")
         for prefix in prefixes:
@@ -468,7 +451,7 @@ class Scraper:
 
             self.update_status(last_scraped=time.time())
 
-            logger.debug("Sleeping for " + str(self.config["timeout_interval"]/1000) + "s.")
+            logger.info("Sleeping for " + str(self.config["timeout_interval"]/1000) + "s.")
             time.sleep(self.config["timeout_interval"]/1000)
 
     def scrape_hip_hop_leaks(self, *args, **kwargs):

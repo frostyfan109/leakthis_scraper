@@ -19,3 +19,4 @@ selenium
 chromedriver_autoinstaller
 python-dotenv
 pyyaml
+keyring

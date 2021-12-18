@@ -6,6 +6,7 @@ import { Table, Modal, Form, Card, ListGroup, Tabs, Tab } from 'react-bootstrap'
 import { FaChartBar } from 'react-icons/fa';
 import { linkToPost } from './common.js';
 import Api from './Api.js';
+import prettyBytes from 'pretty-bytes';
 import debounce from 'debounce-promise';
 import moment from 'moment';
 
@@ -17,6 +18,7 @@ export default class Info extends Component {
       errorModal: false,
       dependencyModal: false,
       configLoading: {},
+      configTemp: null,
       scrapeGraphSort: "days",
       range: null,
       loadingGraph: false
@@ -27,14 +29,23 @@ export default class Info extends Component {
     this.updateSort = this.updateSort.bind(this);
     this.updateConfig = this.updateConfig.bind(this);
     this.canvasMounted = this.canvasMounted.bind(this);
+    this.updateTimeoutInterval = this.updateTimeoutInterval.bind(this);
 
     this.debounceUpdateInfo = debounce(this.updateInfo, 300);
+    this.debounceUpdateTimeoutInterval = debounce((value) => this.updateConfig({timeout_interval: value}), 500);
   }
   async rangeChanged(e) {
     this.setState({ range: e.target.value, loadingGraph: true });
     await this.debounceUpdateInfo();
     this.setState({ loadingGraph: false });
     // this.props.updateInfo();
+  }
+  updateTimeoutInterval(e) {
+    const { value } = e.target;
+    const { configTemp } = this.state;
+    configTemp.scraper_config.timeout_interval = value;
+    this.setState({ configTemp });
+    this.debounceUpdateTimeoutInterval(value);
   }
   updateInfo() {
     return this.props.updateInfo({ sort: this.state.scrapeGraphSort, range: this.state.range });
@@ -79,13 +90,14 @@ export default class Info extends Component {
   }
   componentDidUpdate() {
     this.updateDefaultRange();
+    if (this.state.configTemp === null && this.props.info !== null) this.setState({ configTemp : this.props.info.config });
   }
   componentDidMount() {
     this.updateDefaultRange();
   }
   render() {
-    if (this.props.info === null) return null;
-    const { info: { data, status, config, environment, meta } } = this.props;
+    if (this.props.info === null || this.state.configTemp === null) return null;
+    const { info: { data, status: {account_info, ...status}, config, environment, meta } } = this.props;
     // console.log(this.props);
     return (
       <div className="py-4 px-4 w-100 h-100 d-flex flex-column">
@@ -174,49 +186,68 @@ export default class Info extends Component {
               )
             }
           </div>
-          <Card className="info environment-table ml-md-3 mt-0 mt-3 mt-md-0" style={{flexGrow: 1, flexBasis: 0}}>
-            <h6><Card.Header>Environment</Card.Header></h6>
-            <Card.Body>
-              <Table>
-                <tbody>
-                  <tr>
-                    <td>OS Platform</td>
-                    <td>{environment.platform}</td>
-                  </tr>
-                  <tr>
-                    <td>OS Arch</td>
-                    <td>{environment.arch}</td>
-                  </tr>
-                  <tr>
-                    <td>OS Release</td>
-                    <td>{environment.release}</td>
-                  </tr>
-                  <tr>
-                    <td>Python Version</td>
-                    <td>Python {environment.version.join(".")}</td>
-                  </tr>
-                  <tr>
-                    <td>Virtual Environment</td>
-                    <td>{JSON.stringify(environment.virtualenv)}</td>
-                  </tr>
-                  <tr>
-                    <td>Installed Dependencies</td>
-                    <td style={{overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}>
-                      <a href="javascript:void(0);"
-                         className="text-reset"
-                         onClick={(e) => this.setState({dependencyModal: true})}>
-                        {environment.dependencies.find((d) => d.name === "Installed").dependencies.map((d) => d.name).join(", ")}
-                      </a>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Timezone</td>
-                    <td>{environment.timezone}</td>
-                  </tr>
-                </tbody>
-              </Table>
-            </Card.Body>
-          </Card>
+          <div className="d-flex flex-column">
+            <Card className="info environment-table ml-md-3 mt-0 mt-3 mt-md-0" style={{flexGrow: 1, flexBasis: 0}}>
+              <h6><Card.Header>System Environment</Card.Header></h6>
+              <Card.Body>
+                <Table>
+                  <tbody>
+                    <tr>
+                      <td>OS Platform</td>
+                      <td>{environment.platform}</td>
+                    </tr>
+                    <tr>
+                      <td>OS Arch</td>
+                      <td>{environment.arch}</td>
+                    </tr>
+                    <tr>
+                      <td>OS Release</td>
+                      <td>{environment.release}</td>
+                    </tr>
+                    <tr>
+                      <td>Python Version</td>
+                      <td>Python {environment.version.join(".")}</td>
+                    </tr>
+                    <tr>
+                      <td>Virtual Environment</td>
+                      <td>{JSON.stringify(environment.virtualenv)}</td>
+                    </tr>
+                    <tr>
+                      <td>Installed Dependencies</td>
+                      <td style={{overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}>
+                        <a href="javascript:void(0);"
+                          className="text-reset"
+                          onClick={(e) => this.setState({dependencyModal: true})}>
+                          {environment.dependencies.find((d) => d.name === "Installed").dependencies.map((d) => d.name).join(", ")}
+                        </a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Timezone</td>
+                      <td>{environment.timezone}</td>
+                    </tr>
+                  </tbody>
+                </Table>
+              </Card.Body>
+            </Card>
+            <Card className="info environment-var-table ml-md-3 mt-3" style={{flexGrow: 1, flexBasis: 0}}>
+              <h6><Card.Header>Environment Variables</Card.Header></h6>
+              <Card.Body>
+                <Table>
+                  <tbody>
+                    {
+                      Object.entries(environment.environment_vars).map(([envVar, value]) => (
+                        <tr key={envVar}>
+                          <td style={{width: "50%"}}>{envVar}</td>
+                          <td style={{width: "50%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}><span>{value}</span></td>
+                        </tr>
+                      ))
+                    }
+                  </tbody>
+                </Table>
+              </Card.Body>
+            </Card>
+          </div>
         </div>
         <div className="flex-grow-1 d-flex flex-column flex-md-row align-items-md-start mt-3">
           <Card className="info status-table">
@@ -271,7 +302,7 @@ export default class Info extends Component {
                     <td>Log scraped posts</td>
                     {/*<td>{JSON.stringify(config.debug_config.print_posts_scraped)}</td>*/}
                     <td>
-                      <BoolSelect value={config.debug_config.print_posts_scraped}
+                      <BoolSelect value={config.scraper_config.print_posts_scraped}
                                   selectProps={{disabled: this.state.configLoading.print_posts_scraped}}
                                   onChange={(e) => this.updateConfig({print_posts_scraped: JSON.parse(e.target.value)})}/>
                     </td>
@@ -282,7 +313,7 @@ export default class Info extends Component {
                       <Form.Control className="custom-select custom-select-sm w-auto"
                                     as="select"
                                     size="sm"
-                                    value={config.debug_config.log_level}
+                                    value={config.scraper_config.log_level}
                                     onChange={(e) => this.updateConfig({log_level: e.target.value})}
                                     disabled={this.state.configLoading.log_level}>
                         {
@@ -291,6 +322,76 @@ export default class Info extends Component {
                       </Form.Control>
                     </td>
                   </tr>
+                  <tr>
+                    <td>Timeout interval</td>
+                    <td>
+                      <Form.Control className="w-auto"
+                                    size="sm"
+                                    type="number"
+                                    value={this.state.configTemp.scraper_config.timeout_interval}
+                                    onChange={this.updateTimeoutInterval}
+                                    disabled={this.state.configLoading.timeout_interval}>
+                      </Form.Control>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Update posts</td>
+                    <td>
+                      <BoolSelect value={config.scraper_config.update_posts}
+                                  selectProps={{disabled: this.state.configLoading.update_posts}}
+                                  onChange={(e) => this.updateConfig({update_posts: JSON.parse(e.target.value)})}/>
+                    </td>
+                  </tr>
+                </tbody>
+              </Table>
+            </Card.Body>
+          </Card>
+        </div>
+        <div className="flex-grow-1 d-flex flex-column flex-md-row align-items-md-start mt-3">
+          <Card className="info data-table flex-grow-1">
+            <h6><Card.Header>Data</Card.Header></h6>
+            <Card.Body>
+              <Table>
+                <tbody>
+                  <tr>
+                    <td>Post count</td>
+                    <td>{data.scrape_data.post_count}</td>
+                  </tr>
+                  <tr>
+                    <td>File count</td>
+                    <td>{data.scrape_data.known_file_count} ({data.scrape_data.total_file_count})</td>
+                  </tr>
+                  <tr>
+                    <td>Drive storage</td>
+                    <td>
+                      {prettyBytes(data.scrape_data.drive_quota_used).replace(" ", "")} of {prettyBytes(Math.round(data.scrape_data.drive_quota_total / 1E9) * 1E9).replace(" ", "")}
+                    </td>
+                  </tr>
+                </tbody>
+              </Table>
+            </Card.Body>
+          </Card>
+          <Card className="info credentials-table ml-md-3 mt-0 mt-3 mt-md-0">
+            <h6><Card.Header>Account Credentials</Card.Header></h6>
+            <Card.Body>
+              <Table>
+                <tbody>
+                  <tr>
+                    <td>LT username</td>
+                    <td>{account_info.leakthis_username}</td>
+                  </tr>
+                  <tr>
+                    <td>LT password</td>
+                    <td>{account_info.leakthis_password}</td>
+                  </tr>
+                  <tr>
+                    <td>Drive account</td>
+                    <td>{account_info.drive_user}</td>
+                  </tr>
+                  {/* <tr>
+                    <td>LT user-agent</td>
+                    <td style={{overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}>{account_info.leakthis_user_agent}</td>
+                  </tr> */}
                 </tbody>
               </Table>
             </Card.Body>
@@ -338,21 +439,16 @@ export default class Info extends Component {
   }
 }
 
-export class BoolSelect extends Component {
-  constructor(props) {
-    super(props);
-  }
-  render() {
-    return (
-      <Form.Control className="custom-select custom-select-sm w-auto"
-                    as="select"
-                    size="sm"
-                    value={this.props.value}
-                    onChange={this.props.onChange}
-                    {...this.props.selectProps}>
-        <option value={true}>true</option>
-        <option value={false}>false</option>
-      </Form.Control>
-    );
-  }
+function BoolSelect({value, onChange, selectProps}) {
+  return (
+    <Form.Control className="custom-select custom-select-sm w-auto"
+                  as="select"
+                  size="sm"
+                  value={value}
+                  onChange={onChange}
+                  {...selectProps}>
+      <option value={true}>true</option>
+      <option value={false}>false</option>
+    </Form.Control>
+  );
 }

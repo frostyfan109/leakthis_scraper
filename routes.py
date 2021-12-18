@@ -6,16 +6,18 @@ import os
 import pkg_resources
 from math import ceil
 from importlib_metadata import distributions
+from dotenv import dotenv_values
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import extract, func
 from flask import Response, request, send_file, stream_with_context
-from flask_restplus import Resource, inputs
+from flask_restplus import Resource, inputs, abort
 from mimetypes import guess_type
 from api import app, api, Flask_Session
 from db import Post, File, Prefix
+from config import load_config, save_config
 from main import Scraper
-from drive import get_direct_url, get_direct_url2, get_file
+from drive import get_direct_url, get_direct_url2, get_file, get_drive
 
 logger = logging.getLogger(__file__)
 
@@ -23,7 +25,7 @@ section_entries_parser = api.parser()
 section_entries_parser.add_argument("posts", type=int, help="Posts per page", location="args", default=20)
 section_entries_parser.add_argument("sort_by", type=str, help="Sorting category", location="args", default="latest")
 section_entries_parser.add_argument("hide_pinned", type=inputs.boolean, help="Include/exclude pinned posts", location="args", default=True)
-section_entries_parser.add_argument("prefix_id", type=int, help="Filter by prefix", location="args", default=None)
+section_entries_parser.add_argument("prefix_raw_id", type=int, help="Filter by prefix", location="args", default=None)
 section_entries_parser.add_argument("author", type=str, help="Filter by author", location="args", default=None)
 
 @api.route("/section/<string:section_name>/<int:page>")
@@ -35,7 +37,7 @@ class SectionEntries(Resource):
         per_page = args["posts"]
         sort_by = args["sort_by"]
         hide_pinned = args["hide_pinned"]
-        prefix_id = args["prefix_id"]
+        prefix_raw_id = args["prefix_raw_id"]
         author = args["author"]
         section_id = Scraper.SECTIONS[section_name]["id"]
 
@@ -47,8 +49,8 @@ class SectionEntries(Resource):
         # 3) LIMIT `per_page`
         # 4) OFFSET `per_page * page`
         def filter_chain(filtered):
-            if prefix_id is not None:
-                prefix = session.query(Prefix).filter_by(prefix_id=prefix_id).first()
+            if prefix_raw_id is not None:
+                prefix = session.query(Prefix).filter_by(id=prefix_raw_id).first()
                 # filtered = filtered.filter(Post.prefix == prefix.name)
                 # Post.prefixes is a JSON wrapper abstraction that is really just a Unicode string.
                 # This makes it difficult to do performant sorting on it, when it needs to be treated as a list.
@@ -66,8 +68,8 @@ class SectionEntries(Resource):
             return ordered
 
         non_pinned = filter_chain(session.query(Post).filter((Post.section_id == section_id) & (Post.pinned == False)))
-        # Only the first page should have pinned posts
-        if page == 0:
+        # Only the first page should have pinned posts. And only when hide_pinned == False.
+        if page == 0 and not hide_pinned:
             pinned = filter_chain(session.query(Post).filter((Post.section_id == section_id) & (Post.pinned == True)))
         else:
             # Create an empty query
@@ -129,15 +131,17 @@ class Info(Resource):
             scraper_running = False
         try:
             with open(os.path.join(os.path.dirname(__file__), "status.json"), "r") as f:
-                status_data = json.load(f)
-                last_scraped = status_data["last_scraped"]
-                last_error = status_data["last_error"]
+                status_data = json.load(f)    
         except FileNotFoundError:
-            last_scraped = None
-            last_error = None
+            status_data = {}
 
-        with open(os.path.join(os.path.dirname(__file__), "debug_config.json"), "r") as f:
-            debug_config = json.load(f)
+        last_scraped = status_data.get("last_scraped", None)
+        last_error = status_data.get("last_error", None)
+        leakthis_username = status_data.get("leakthis_username", None)
+        leakthis_password = status_data.get("leakthis_password", None)
+        leakthis_user_agent = status_data.get("leakthis_user_agent", None)
+
+        config = load_config()
 
         most_recent_post = session.query(Post).order_by(Post.first_scraped.desc()).first()
 
@@ -196,6 +200,17 @@ class Info(Resource):
             "default": 12,
             "range": cur_range if sort == "months" else None
         }
+
+        post_count = session.query(Post).count()
+        known_file_count = session.query(File).filter((File.unknown == False) | (File.unknown == None)).count()
+        total_file_count = session.query(File).count()
+
+        drive = get_drive()
+        about = drive.GetAbout()
+        drive_quota_used = int(about["quotaBytesUsed"])
+        drive_quota_total = int(about["quotaBytesTotal"])
+        drive_user = about["name"]
+
         session.close()
 
         with open(os.path.join(os.path.dirname(__file__), "requirements.txt"), "r") as req_txt:
@@ -209,7 +224,12 @@ class Info(Resource):
                         "days": scrapes_per_day,
                         "weeks": scrapes_per_week,
                         "months": scrapes_per_month
-                    }
+                    },
+                    "post_count": post_count,
+                    "known_file_count": known_file_count,
+                    "total_file_count": total_file_count,
+                    "drive_quota_used": drive_quota_used,
+                    "drive_quota_total": drive_quota_total
                 }
             },
             "status": {
@@ -217,10 +237,16 @@ class Info(Resource):
                 "pid": pid if scraper_running else None,
                 "last_scraped": last_scraped,
                 "last_error": last_error,
-                "most_recent_post": most_recent_post.serialize()
+                "most_recent_post": most_recent_post.serialize(),
+                "account_info": {
+                    "leakthis_username": leakthis_username,
+                    "leakthis_password": leakthis_password,
+                    "leakthis_user_agent": leakthis_user_agent,
+                    "drive_user": drive_user
+                }
             },
             "config": {
-                "debug_config": debug_config
+                "scraper_config": config
             },
             "environment": {
                 "platform": platform.system(),
@@ -238,7 +264,8 @@ class Info(Resource):
                         "dependencies": installed_dependencies
                     }
                 ],
-                "timezone": str(datetime.now(timezone.utc).astimezone().tzinfo)
+                "timezone": str(datetime.now(timezone.utc).astimezone().tzinfo),
+                "environment_vars": dotenv_values()
             },
             "meta": {
                 "log_levels": list(logging._nameToLevel.keys())
@@ -261,6 +288,8 @@ class DirectDownload(Resource):
 
         session = Flask_Session()
         file = session.query(File).filter_by(drive_id=drive_id).first()
+        if file is None:
+            return abort(404, f"File with drive id '{drive_id}' does not exist.")
         drive_file = get_file(drive_id)
         drive_file.FetchContent()
         # Could also get Drive's inferred mimetype from file.FetchMetadata() and file["mimeType"],
@@ -278,6 +307,7 @@ class DirectDownload(Resource):
             mimetype=mimetype
         )
         response.headers.set("Content-Disposition", f'{"attachment" if attachment else "inline"}; filename="{file_name}"')
+        response.headers.set("Content-Length", str(drive_file.content.getbuffer().nbytes))
         return response
 
 @api.route("/file/<int:file_id>/cover")
@@ -298,28 +328,37 @@ class FileCover(Resource):
 config_parser = api.parser()
 config_parser.add_argument("print_posts_scraped", type=inputs.boolean, help="Log scraped posts", location="form", required=False)
 config_parser.add_argument("log_level", type=str, help="Logging level", location="form", required=False)
+config_parser.add_argument("timeout_interval", type=int, help="Timeout interval", location="form", required=False)
+config_parser.add_argument("update_posts", type=inputs.boolean, help="Update posts", location="form", required=False)
 @api.route("/config")
 class Config(Resource):
+    """ Update the scraping config """
     @api.expect(config_parser)
     def post(self):
         form = config_parser.parse_args()
 
         print_posts_scraped = form.get("print_posts_scraped")
         log_level = form.get("log_level")
+        timeout_interval = form.get("timeout_interval")
+        update_posts = form.get("update_posts")
 
-        with open(os.path.join(os.path.dirname(__file__), "debug_config.json"), "r") as f:
-            config = json.load(f)
+        config = load_config()
 
-        if print_posts_scraped != None:
+        if print_posts_scraped is not None:
             config["print_posts_scraped"] = print_posts_scraped
 
-        if log_level != None:
+        if log_level is not None:
             log_level = log_level.upper()
             if log_level in logging._nameToLevel:
                 config["log_level"] = log_level
 
-        with open(os.path.join(os.path.dirname(__file__), "debug_config.json"), "w") as f:
-            json.dump(config, f)
+        if timeout_interval is not None:
+            config["timeout_interval"] = timeout_interval
+
+        if update_posts is not None:
+            config["update_posts"] = update_posts
+
+        save_config(config)
 
         return config
         # print_posts_scraped = form.get("print_posts_scraped")
