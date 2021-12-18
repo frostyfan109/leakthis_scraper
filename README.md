@@ -42,8 +42,8 @@ $ make run
 ```
 The scraper can also be run by providing the `--username` argument, e.g.:
 ```bash
-make install
-make run.api
-make run.web
-python main.py --username {XXX}
+$ make install
+$ make run.api
+$ make run.web
+$ python main.py --username {XXX}
 ```
