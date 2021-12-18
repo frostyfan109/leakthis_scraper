@@ -4,8 +4,9 @@ class FileNotFoundError(Exception):
         self.url = url
 
 class AuthenticationError(Exception):
-    def __init__(self, service):
-        super().__init__(f'Failed to authenticate with service "{service}".')
+    def __init__(self, msg):
+        super().__init__(msg)
+        # super().__init__(f'Failed to authenticate with service "{service}".')
         self.service = service
 
 class MissingEnvironmentError(Exception):
@@ -13,5 +14,9 @@ class MissingEnvironmentError(Exception):
         super().__init__(f'Required environment variable "{env_key}" is not defined.')
 
 class ConfigError(Exception):
+    def __init__(self, msg):
+        super().__init__(msg)
+
+class StorageError(Exception):
     def __init__(self, msg):
         super().__init__(msg)

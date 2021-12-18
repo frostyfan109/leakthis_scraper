@@ -13,7 +13,7 @@ from tinycss2 import parse_stylesheet, parse_declaration_list
 from urllib.parse import urlparse, parse_qsl
 from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError
 from db import session_factory, Post, File, Prefix
-from drive import upload_file, get_direct_url
+from drive import upload_file, get_direct_url, get_drive_breakdown
 from config import load_config, load_credentials
 from url_parser import URLParser
 from commons import assert_is_ok, unabbr_number, get_cover
@@ -47,6 +47,7 @@ def disableable_session_factory(disabled):
     return session
 
 class Scraper:
+    LT_DB_VERSION = 2
     SECTIONS = {
         "hip-hop-leaks": {
             "path": "/hiphopleaks",
@@ -71,6 +72,8 @@ class Scraper:
         self.login(credentials)
         # self.config = DEFAULT_CONFIG
         # self.configure_config(config)
+
+        logger.info(get_drive_breakdown())
 
     def update_config(self):
         self.configure_config(load_config())
@@ -132,7 +135,7 @@ class Scraper:
                 self.token_expires = cookie.expires
         if self.token_expires is None:
             # Login failed
-            raise AuthenticationError(service=self.base_url)
+            raise AuthenticationError(f"Failed to authenticate with service '{self.base_url}' using username '{credentials['username']}'.")
         # self.session.cookies.set_cookie(requests.cookies.create_cookie(domain="https://leakth.is", name="xf_notice_dismiss", value="-1"))
         # print(self.session.cookies)
 
@@ -140,12 +143,12 @@ class Scraper:
 
 
     def pickle_session(self):
-        with open("session_cookies", "wb") as f:
+        with open(os.path.join(os.path.dirname(__file__), "session_cookies"), "wb+") as f:
             pickle.dump(self.session.cookies, f)
 
     def logout(self):
         try:
-            with open("session_cookies", "rb") as f:
+            with open(os.path.join(os.path.dirname(__file__), "session_cookies"), "rb") as f:
                 self.session.cookies.update(pickle.load(f))
         except FileNotFoundError:
             # No session has been created before
@@ -202,8 +205,8 @@ class Scraper:
             download = URLParser().download(url)
             # Make sure the URL is associated with a supported hosting service
             if download is None:
-                logger.warning(f"Could not identify associated service for post '{post_url}'")
-                with open("non_implemented_urls.txt", "a+") as f:
+                logger.warning(f"Could not identify associated service for url '{url}' on post '{post_url}'")
+                with open(os.path.join(os.path.dirname(__file__), "non_implemented_urls.txt"), "a+") as f:
                     f.write(post_url + " " + url + "\n")
             elif download.get("unknown") == True:
                 files.append({
@@ -216,13 +219,15 @@ class Scraper:
                 download_url = download["download_url"]
                 stream = download["stream"]
                 file_name = download["file_name"]
-                drive_id = upload_file(file_name, stream)
+                (drive_id, drive_project_id) = upload_file(file_name, stream)
                 files.append({
                     "url": url,
                     "download_url": download_url,
                     "file_name": file_name,
                     "drive_id": drive_id,
-                    "cover": get_cover(stream)
+                    "drive_project_id": drive_project_id,
+                    "cover": None
+                    # "cover": get_cover(stream)
                 })
 
         return {
@@ -278,7 +283,7 @@ class Scraper:
 
     def parse_post_data(self, soup, el):
         native_id = int([match for match in [re.match(r"^js-threadListItem-(\d+)$", class_name) for class_name in el["class"]] if match != None][0].group(1))
-
+        native_id = self.format_native_id(native_id)
         title_el = el.select_one(".structItem-title")
         title = title_el.find("a", class_="")
         logger.info(f"Parsing post '{title.text}'")
@@ -368,34 +373,41 @@ class Scraper:
             native_id=post_data["native_id"],
             section_id=self.get_section_id(section)
         )
+        session.add(post)
+        session.commit()
+
+        post_id = post.id
+
         for file in post_content["files"]:
             if file.get("unknown") == True:
                 file = File(
-                    post_id=post.native_id,
+                    post_id=post_id,
                     file_name="",
                     url=file["url"],
                     download_url="",
                     drive_id="",
+                    drive_project_id="",
                     unknown=True,
                     exception=str(file["exception"]),
                     traceback=file["traceback"]
                 )
             else:
                 file = File(
-                    post_id=post.native_id,
+                    post_id=post_id,
                     file_name=file["file_name"],
                     url=file["url"],
                     download_url=file["download_url"],
                     drive_id=file["drive_id"],
+                    drive_project_id=file["drive_project_id"],
                     cover=file["cover"]
                 )
             session.add(file)
-        session.add(post)
+        logger.info(f"Parsed new post {str(post)}.")
         session.commit()
-        if post_callback is not None: post_callback(post.native_id)
+        if post_callback is not None: post_callback(post_id)
         session.close()
 
-        return post_data["native_id"]
+        return post_id
 
     def parse_posts(self, content, section, post_callback=None):
         post_ids = []
@@ -464,16 +476,16 @@ class Scraper:
         This method is expected to be called within the exception context
         (s.t. traceback works properly). """
     def log_critical(self, e):
-        with open("critical_log.txt", "a+") as f:
+        with open(os.path.join(os.path.dirname(__file__), "critical_log.txt"), "a+") as f:
             f.write(traceback.format_exc() + "\n")
         self.update_status(last_error={"error": str(e), "traceback": traceback.format_exc(), "time": time.time()})
 
     def get_status_data(self):
-        with open("status.json", "r") as f:
+        with open(os.path.join(os.path.dirname(__file__), "status.json"), "r") as f:
             return json.load(f)
 
     def set_status_data(self, status_data):
-        with open("status.json", "w") as f:
+        with open(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as f:
             json.dump(status_data, f)
 
     def update_status(self, **kwargs):
@@ -489,3 +501,7 @@ class Scraper:
     @classmethod
     def get_section_id(cls, section):
         return cls.SECTIONS[section]["id"]
+
+    @classmethod
+    def format_native_id(cls, native_id):
+        return str(cls.LT_DB_VERSION) + "." + str(native_id)

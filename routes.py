@@ -17,7 +17,11 @@ from api import app, api, Flask_Session
 from db import Post, File, Prefix
 from config import load_config, save_config
 from main import Scraper
-from drive import get_direct_url, get_direct_url2, get_file, get_drive
+from drive import (
+    get_direct_url, get_direct_url2, get_file,
+    get_drive, get_drive_project_ids, load_storage_cache,
+    get_available_project_ids, get_active_project_id
+)
 
 logger = logging.getLogger(__file__)
 
@@ -205,11 +209,25 @@ class Info(Resource):
         known_file_count = session.query(File).filter((File.unknown == False) | (File.unknown == None)).count()
         total_file_count = session.query(File).count()
 
+        """
         drive = get_drive()
         about = drive.GetAbout()
         drive_quota_used = int(about["quotaBytesUsed"])
         drive_quota_total = int(about["quotaBytesTotal"])
         drive_user = about["name"]
+        drive_project = about[]
+        """
+        project_ids = get_drive_project_ids()
+        available_project_ids = get_available_project_ids()
+        active_project_id = get_active_project_id()
+        drive_storage_cache = load_storage_cache()
+        drive_data = {}
+        for project_id in project_ids:
+            drive_data[project_id] = {
+                "available": project_id in available_project_ids,
+                "in_use": project_id == active_project_id,
+                **drive_storage_cache[project_id]
+            }
 
         session.close()
 
@@ -228,8 +246,6 @@ class Info(Resource):
                     "post_count": post_count,
                     "known_file_count": known_file_count,
                     "total_file_count": total_file_count,
-                    "drive_quota_used": drive_quota_used,
-                    "drive_quota_total": drive_quota_total
                 }
             },
             "status": {
@@ -242,7 +258,7 @@ class Info(Resource):
                     "leakthis_username": leakthis_username,
                     "leakthis_password": leakthis_password,
                     "leakthis_user_agent": leakthis_user_agent,
-                    "drive_user": drive_user
+                    "drive": drive_data
                 }
             },
             "config": {
@@ -279,18 +295,20 @@ class DownloadURL(Resource):
 
 direct_download_parser = api.parser()
 direct_download_parser.add_argument("download", type=inputs.boolean, help="Download as attachment rather than inline.", location="args", default=True, required=False)
-@api.route("/download/<string:drive_id>")
+@api.route("/download/<int:file_id>")
 class DirectDownload(Resource):
-    def get(self, drive_id):
+    def get(self, file_id):
         args = direct_download_parser.parse_args()
 
         attachment = args.get("download", True)
 
         session = Flask_Session()
-        file = session.query(File).filter_by(drive_id=drive_id).first()
+        file = session.query(File).filter_by(id=file_id).first()
         if file is None:
-            return abort(404, f"File with drive id '{drive_id}' does not exist.")
-        drive_file = get_file(drive_id)
+            return abort(404, f"File with id '{file_id}' does not exist.")
+        if file.unknown:
+            return abort(404, f"File with id '{file_id}' is not downloaded.")
+        drive_file = get_file(file.drive_project_id, file.drive_id)
         drive_file.FetchContent()
         # Could also get Drive's inferred mimetype from file.FetchMetadata() and file["mimeType"],
         # but it's more accurate to just go off of the file name in the first place.

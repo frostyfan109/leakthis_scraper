@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
         def post_added(post_id):
             session = session_factory()
-            print(f"Archived new post '{session.query(Post).filter_by(native_id=post_id).first().title}'.")
+            print(f"Archived new post '{session.query(Post).filter_by(id=post_id).first().title}'.")
             session.close()
 
         try:

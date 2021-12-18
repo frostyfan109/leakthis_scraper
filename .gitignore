@@ -5,7 +5,8 @@ __pycache__
 # Credentials
 credentials.json
 credentials.yaml
-drive_credentials.json
+drive_credentials*.json
+drive_storage_cache.json
 
 # Logging / debug
 geckodriver.log
@@ -21,3 +22,6 @@ status.json
 
 # Backup
 *.bak
+
+# Misc
+todo.txt

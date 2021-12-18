@@ -239,7 +239,7 @@ export default class Info extends Component {
                       Object.entries(environment.environment_vars).map(([envVar, value]) => (
                         <tr key={envVar}>
                           <td style={{width: "50%"}}>{envVar}</td>
-                          <td style={{width: "50%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}><span>{value}</span></td>
+                          <td style={{width: "50%", maxWidth: "0"}}><span>{value}</span></td>
                         </tr>
                       ))
                     }
@@ -361,12 +361,6 @@ export default class Info extends Component {
                     <td>File count</td>
                     <td>{data.scrape_data.known_file_count} ({data.scrape_data.total_file_count})</td>
                   </tr>
-                  <tr>
-                    <td>Drive storage</td>
-                    <td>
-                      {prettyBytes(data.scrape_data.drive_quota_used).replace(" ", "")} of {prettyBytes(Math.round(data.scrape_data.drive_quota_total / 1E9) * 1E9).replace(" ", "")}
-                    </td>
-                  </tr>
                 </tbody>
               </Table>
             </Card.Body>
@@ -384,7 +378,7 @@ export default class Info extends Component {
                     <td>LT password</td>
                     <td>{account_info.leakthis_password}</td>
                   </tr>
-                  <tr>
+                  <tr style={{display: "none"}}>
                     <td>Drive account</td>
                     <td>{account_info.drive_user}</td>
                   </tr>
@@ -392,6 +386,28 @@ export default class Info extends Component {
                     <td>LT user-agent</td>
                     <td style={{overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", maxWidth: "0"}}>{account_info.leakthis_user_agent}</td>
                   </tr> */}
+                </tbody>
+              </Table>
+            </Card.Body>
+          </Card>
+        </div>
+        <div className="flex-grow-1 d-flex flex-column flex-md-row align-items-md-start mt-3">
+          <Card className="info drive-table flex-grow-1">
+            <h6><Card.Header>Drive info</Card.Header></h6>
+            <Card.Body>
+              <Table>
+                <tbody>
+                  {
+                    Object.entries(account_info.drive).map(([project_id, project_data]) => (
+                      <tr>
+                        <td>{project_id}</td>
+                        <td>
+                          {prettyBytes(project_data.quota_used).replace(" ", "")} of {prettyBytes(Math.round(project_data.quota_total / 1E9) * 1E9).replace(" ", "")}
+                        </td>
+                        <td>{project_data.in_use ? "Active" : (project_data.available ? "Available" : "Full")}</td>
+                      </tr>
+                    ))
+                  }
                 </tbody>
               </Table>
             </Card.Body>

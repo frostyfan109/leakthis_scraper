@@ -42,7 +42,7 @@ class Post(Base):
     __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True)
-    native_id = Column(Integer, unique=True, nullable=False)
+    native_id = Column(String, unique=True, nullable=False)
     section_id = Column(Integer, nullable=False)
     title = Column(String, nullable=False)
     url = Column(String, nullable=False)
@@ -60,7 +60,7 @@ class Post(Base):
     last_updated = Column(DateTime, default=datetime.now)
 
     def get_files(self):
-        return persistent_session.query(File).filter_by(post_id=self.native_id)
+        return persistent_session.query(File).filter_by(post_id=self.id)
 
     def get_prefix(self, prefix_name):
         return persistent_session.query(Prefix).filter_by(name=prefix_name).first()
@@ -100,6 +100,7 @@ class File(Base):
     download_url = Column(String, nullable=False)
     file_name = Column(String, nullable=False)
     drive_id = Column(String, nullable=False)
+    drive_project_id = Column(String, nullable=False)
     cover = Column(LargeBinary)
     # Only set on files that weren't properly downloaded.
     unknown = Column(Boolean)
@@ -107,7 +108,7 @@ class File(Base):
     traceback = Column(String)
 
     def get_post(self):
-        return persistent_session.query(Post).filter_by(native_id=self.post_id).first()
+        return persistent_session.query(Post).filter_by(id=self.post_id).first()
 
     def get_hosting_service(self):
         return URLParser().get_hosting_service(self.url)
@@ -120,7 +121,7 @@ class File(Base):
             "url": self.url,
             "download_url": self.download_url,
             "file_name": self.file_name,
-            "drive_id": self.drive_id,
+            # "drive_id": self.drive_id,
             # "direct_url": get_direct_url(self.drive_id),
             # "cover": self.cover,
             "unknown": self.unknown,
