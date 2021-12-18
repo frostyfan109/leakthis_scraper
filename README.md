@@ -34,6 +34,7 @@ The API is built using:
 
 ## Usage
 This project expects Python >=3.7.x.
+<br/>
 A `.env` file is required and should be configured before running the scraper/API. See `.env.sample` for reference.
 
 ```bash
