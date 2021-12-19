@@ -17,6 +17,7 @@ from api import app, api, Flask_Session
 from db import Post, File, Prefix
 from config import load_config, save_config
 from main import Scraper
+from exceptions import AuthenticationError
 from drive import (
     get_direct_url, get_direct_url2, get_file,
     get_drive, get_drive_project_ids, load_storage_cache,
@@ -29,7 +30,7 @@ section_entries_parser = api.parser()
 section_entries_parser.add_argument("posts", type=int, help="Posts per page", location="args", default=20)
 section_entries_parser.add_argument("sort_by", type=str, help="Sorting category", location="args", default="latest")
 section_entries_parser.add_argument("hide_pinned", type=inputs.boolean, help="Include/exclude pinned posts", location="args", default=True)
-section_entries_parser.add_argument("prefix_raw_id", type=int, help="Filter by prefix", location="args", default=None)
+section_entries_parser.add_argument("prefix_raw_id", type=int, action="append", help="Filter by prefix", location="args", default=None)
 section_entries_parser.add_argument("author", type=str, help="Filter by author", location="args", default=None)
 
 @api.route("/section/<string:section_name>/<int:page>")
@@ -41,7 +42,7 @@ class SectionEntries(Resource):
         per_page = args["posts"]
         sort_by = args["sort_by"]
         hide_pinned = args["hide_pinned"]
-        prefix_raw_id = args["prefix_raw_id"]
+        prefix_raw_ids = args["prefix_raw_id"]
         author = args["author"]
         section_id = Scraper.SECTIONS[section_name]["id"]
 
@@ -53,12 +54,13 @@ class SectionEntries(Resource):
         # 3) LIMIT `per_page`
         # 4) OFFSET `per_page * page`
         def filter_chain(filtered):
-            if prefix_raw_id is not None:
-                prefix = session.query(Prefix).filter_by(id=prefix_raw_id).first()
-                # filtered = filtered.filter(Post.prefix == prefix.name)
-                # Post.prefixes is a JSON wrapper abstraction that is really just a Unicode string.
-                # This makes it difficult to do performant sorting on it, when it needs to be treated as a list.
-                filtered = filtered.filter(Post.prefixes.contains(prefix.name)) 
+            if prefix_raw_ids is not None:
+                for prefix_raw_id in prefix_raw_ids:
+                    prefix = session.query(Prefix).filter_by(id=prefix_raw_id).first()
+                    # filtered = filtered.filter(Post.prefix == prefix.name)
+                    # Post.prefixes is a JSON wrapper abstraction that is really just a Unicode string.
+                    # This makes it difficult to do performant sorting on it, when it needs to be treated as a list.
+                    filtered = filtered.filter(Post.prefixes.contains(prefix.name))
             if author is not None:
                 filtered = filtered.filter(Post.created_by == author)
             # if hide_pinned:
@@ -112,10 +114,32 @@ class Prefixes(Resource):
         session.close()
         return prefixes
 
+drive_files_parser = api.parser()
+drive_files_parser.add_argument("files", type=int, help="Files per page", location="args", default=20)
+@api.route("/drive_files/<string:drive_id>/<int:page>")
+class DriveFiles(Resource):
+    def get(self, drive_id, page):
+        args = drive_files_parser.parse_args()
+        per_page = args["files"]
+        try:
+            drive = get_drive(drive_id)
+            files = drive.ListFile().GetList()
+            return {
+                # e.g., page=0, per_page=20 => files[0:20]; page=2, per_page=5 => files[10:15]
+                "files": files[page * per_page : page*per_page + per_page],
+                "total": len(files),
+                "pages": ceil(len(files) / per_page),
+                "page": page,
+                "per_page": per_page
+            }
+        except AuthenticationError as e:
+            return abort(400, f"Invalid project ID '{drive_id}'.")
+        except ZeroDivisionError as e:
+            return abort(400, f"`files` param cannot be 0.")
+
 info_parser = api.parser()
 info_parser.add_argument("sort", type=str, help="Current scraping sort", location="args")
 info_parser.add_argument("range", type=int, help="Current number (per current sort)", location="args")
-
 @api.route("/info")
 class Info(Resource):
     # @db_resource

@@ -1,5 +1,8 @@
 disable_db: false
+initial_pages_scraped: 5
 log_level: DEBUG
+max_retries: 4
 print_posts_scraped: false
-timeout_interval: 30000
+subsequent_pages_scraped: 3
+timeout_interval: 60000
 update_posts: true

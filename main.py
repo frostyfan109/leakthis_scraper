@@ -1,11 +1,13 @@
 import pidfile
 import argparse
 import keyring
+import os
 from dotenv import load_dotenv
 from getpass import getpass
 from scraper import Scraper
 from db import session_factory, Post
-from exceptions import AuthenticationError
+from commons import get_env_var
+from exceptions import AuthenticationError, MissingEnvironmentError
 
 KEYRING_SERVICE = "leakthis_scraper"
 
@@ -27,12 +29,26 @@ if __name__ == "__main__":
         if args.config: os.environ["CONFIG_PATH"] = args.config
         """
 
-        parser = argparse.ArgumentParser(description="Leakthis credential override")
+        parser = argparse.ArgumentParser(description="Override environment config.")
         parser.add_argument("-n", "--username", action="store", default=None, help="Leakthis username")
+        parser.add_argument(
+            "-s",
+            "--sections",
+            action="store",
+            default=None,
+            help=f"Comma-delimited list of scraping sections. Valid sections: {', '.join(list(Scraper.SECTIONS.keys()))}"
+        )
         # parser.add_argument("-p", "--password", action="store", default=None, help="Leakthis password")
 
         args = parser.parse_args()
         
+        sections = args.sections
+        if sections is None:
+            sections = get_env_var("SCRAPING_SECTIONS")
+        
+        sections = [i.strip() for i in sections.split(",")]
+            
+
         username = args.username
         credentials = None
         # Only construct credentials if username is provided. Otherwise it is assumed that they will be accessible
@@ -66,6 +82,7 @@ if __name__ == "__main__":
                 # but this is much less painless since that's for the most part a fringe case.
                 keyring.delete_password(KEYRING_SERVICE, username)
             raise e
+        scraper.scrape(sections, post_added)
         scraper.scrape_hip_hop_leaks(post_added)
     # scraper.scrape_posts("hip-hop-leaks", pages=1)
     # post_ids = scraper.parse_posts(requests.get("https://leakth.is/forums/hip-hop-leaks.10/").content, "hip-hop-leaks")

@@ -4,6 +4,7 @@ import { LinkContainer } from 'react-router-bootstrap';
 import { Switch, Route, Link, withRouter } from 'react-router-dom';
 import Section from './Section.js';
 import Info from './Info.js';
+import DriveInfo from './DriveInfo.js';
 import Api from './Api.js';
 import { POST_COUNT } from './config.js';
 import './App.css';
@@ -16,7 +17,7 @@ class App extends Component {
       sections: null,
       defaultSection: null,
       prefixes: null,
-      info: null
+      info: null,
     };
     this.isActive = this.isActive.bind(this);
     this.brandClicked = this.brandClicked.bind(this);
@@ -46,7 +47,7 @@ class App extends Component {
       Object.entries(sections).forEach(([sectionName, section]) => {
         section.path_name = sectionName;
         section.path = "/" + sectionName;
-        if (section.id === 10) defaultSection = section;
+        if (section.name === process.env.REACT_APP_DEFAULT_SECTION) defaultSection = section;
       });
       this.setState({ sections, defaultSection });
     });
@@ -106,11 +107,16 @@ class App extends Component {
                     </LinkContainer>
                 ))
               }
-              <div className="border-left m-2">{/* separator */}</div>
+              <div className="border-left m-2 d-none d-lg-block">{/* separator */}</div>
               <LinkContainer to="/info" active={false} isActive={(match, location) => this.isActive(null, match, location)}>
                 <Nav.Link>Info</Nav.Link>
               </LinkContainer>
+              <div className="border-left m-2 d-none d-lg-block">{/* separator */}</div>
+              <LinkContainer to="/drive-info" active={false} isActive={(match, location) => this.isActive(null, match, location)}>
+                <Nav.Link>Drive</Nav.Link>
+              </LinkContainer>
             </Nav>
+            <div className="m-2 m-lg-0"/>
             <Form inline>
               <Form.Control type="text" placeholder="Search" className="mr-sm-2"/>
               <Button variant="outline-primary">Search</Button>
@@ -126,6 +132,9 @@ class App extends Component {
             )}
             <Route path="/info">
               <Info info={this.state.info} updateInfo={this.getInfo}/>
+            </Route>
+            <Route path="/drive-info">
+              <DriveInfo info={this.state.info}/>
             </Route>
             {
               Object.entries(this.state.sections || {}).map(([sectionName, section]) => {

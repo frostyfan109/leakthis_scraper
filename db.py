@@ -106,6 +106,7 @@ class File(Base):
     unknown = Column(Boolean)
     exception = Column(String)
     traceback = Column(String)
+    retries = Column(Integer, default=0)
 
     def get_post(self):
         return persistent_session.query(Post).filter_by(id=self.post_id).first()
@@ -131,11 +132,12 @@ class File(Base):
             "hosting_service": {
                 "name": hosting_service.name,
                 "base_url": hosting_service.base_url
-            }
+            } if hosting_service is not None else None
         }
 
     def __repr__(self):
-        return f"File<'{self.get_post().title}', '{self.get_hosting_service().name}', '{self.file_name}'>"
+        hosting_service = self.get_hosting_service()
+        return f"File<'{self.get_post().title}', '{hosting_service.name if hosting_service else None}', '{self.file_name}'>"
 
 class Prefix(Base):
     __tablename__ = "prefix"

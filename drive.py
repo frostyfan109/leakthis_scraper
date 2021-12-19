@@ -10,19 +10,25 @@ from apiclient.discovery import build
 from io import BytesIO
 from itertools import chain
 from dotenv import load_dotenv
+from commons import get_env_var
 from exceptions import MissingEnvironmentError, AuthenticationError, StorageError
 
 load_dotenv()
 
 logger = logging.getLogger(__file__)
 logging.getLogger('googleapiclient').setLevel(logging.ERROR)
+logging.getLogger('oauth2client').setLevel(logging.ERROR)
 # logging.getLogger('googleapiclient.discovery').setLevel(logging.ERROR)
 # logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
-logging.getLogger('oauth2client.transport').setLevel(logging.ERROR)
-logging.getLogger('oauth2client.client').setLevel(logging.ERROR)
+# logging.getLogger('oauth2client.transport').setLevel(logging.ERROR)
+# logging.getLogger('oauth2client.client').setLevel(logging.ERROR)
 
 # Drive projects will stop being used once their storage usage reaches DRIVE_STORAGE_CUTOFF.
-DRIVE_STORAGE_CUTOFF = float(os.environ.get("DRIVE_STORAGE_CUTOFF", ".975"))
+try:
+    DRIVE_STORAGE_CUTOFF = get_env_var("DRIVE_STORAGE_CUTOFF")
+except MissingEnvironmentError:
+    DRIVE_STORAGE_CUTOFF = ".975"
+DRIVE_STORAGE_CUTOFF = float(DRIVE_STORAGE_CUTOFF)
 
 def load_storage_cache():
     try:
@@ -51,9 +57,7 @@ def save_storage_cache(cache):
         json.dump(cache, f)
 
 def get_drive_credential_paths():
-    value = os.environ.get("DRIVE_CREDENTIALS_FILE", "")
-    if value == "":
-        raise MissingEnvironmentError("DRIVE_CREDENTIALS_FILE")
+    value = get_env_var("DRIVE_CREDENTIALS_FILE")
     
     glob_expressions = value.split(",")
     # Get lists of file paths and flatten.

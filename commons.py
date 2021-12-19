@@ -1,5 +1,14 @@
+import os
 from io import BytesIO
 from mutagen import File as MutagenFile
+from exceptions import MissingEnvironmentError
+
+""" Get a required environment variable. """
+def get_env_var(var):
+    value = os.environ.get(var, "")
+    if value == "":
+        raise MissingEnvironmentError(var)
+    return value
 
 def assert_is_ok(res):
     if not res.ok:

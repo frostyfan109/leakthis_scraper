@@ -5,6 +5,7 @@ import { Line } from 'react-chartjs-2';
 import { Table, Modal, Form, Card, ListGroup, Tabs, Tab } from 'react-bootstrap';
 import { FaChartBar } from 'react-icons/fa';
 import { linkToPost } from './common.js';
+import Loading from './Loading';
 import Api from './Api.js';
 import prettyBytes from 'pretty-bytes';
 import debounce from 'debounce-promise';
@@ -30,9 +31,11 @@ export default class Info extends Component {
     this.updateConfig = this.updateConfig.bind(this);
     this.canvasMounted = this.canvasMounted.bind(this);
     this.updateTimeoutInterval = this.updateTimeoutInterval.bind(this);
+    this.updateSubsequentPagesScraped = this.updateSubsequentPagesScraped.bind(this);
 
     this.debounceUpdateInfo = debounce(this.updateInfo, 300);
     this.debounceUpdateTimeoutInterval = debounce((value) => this.updateConfig({timeout_interval: value}), 500);
+    this.debounceUpdateSubsequentPagesScraped = debounce((value) => this.updateConfig({subsequent_pages_scraped: value}), 500);
   }
   async rangeChanged(e) {
     this.setState({ range: e.target.value, loadingGraph: true });
@@ -46,6 +49,13 @@ export default class Info extends Component {
     configTemp.scraper_config.timeout_interval = value;
     this.setState({ configTemp });
     this.debounceUpdateTimeoutInterval(value);
+  }
+  updateSubsequentPagesScraped(e) {
+    const { value } = e.target;
+    const { configTemp } = this.state;
+    configTemp.scraper_config.subsequent_pages_scraped = value;
+    this.setState({ configTemp });
+    this.debounceUpdateSubsequentPagesScraped(value);
   }
   updateInfo() {
     return this.props.updateInfo({ sort: this.state.scrapeGraphSort, range: this.state.range });
@@ -96,8 +106,8 @@ export default class Info extends Component {
     this.updateDefaultRange();
   }
   render() {
-    if (this.props.info === null || this.state.configTemp === null) return null;
-    const { info: { data, status: {account_info, ...status}, config, environment, meta } } = this.props;
+    const loading = this.props.info === null || this.state.configTemp === null;
+    const { data, status: {account_info, ...status} = {}, config, environment, meta } = this.props.info || {};
     // console.log(this.props);
     return (
       <div className="py-4 px-4 w-100 h-100 d-flex flex-column">
@@ -108,6 +118,12 @@ export default class Info extends Component {
           <h4 className="mb-0">Scraper Info</h4>
           {/*<small></small>*/}
         </div>
+        {loading ? (
+          <div className="h-100 w-100 d-flex justify-content-center align-items-center">
+            <Loading/>
+          </div>
+        ) : (
+        <>
         <div className="d-flex flex-column flex-md-row align-items-md-start">
           <div style={{flex: 0, flexGrow: 2, height: "100%"}} className="d-flex flex-column">
             <div className="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center mb-2">
@@ -342,6 +358,18 @@ export default class Info extends Component {
                                   onChange={(e) => this.updateConfig({update_posts: JSON.parse(e.target.value)})}/>
                     </td>
                   </tr>
+                  <tr>
+                    <td>Pages scraped</td>
+                    <td>
+                      <Form.Control className="w-auto"
+                                    size="sm"
+                                    type="number"
+                                    value={this.state.configTemp.scraper_config.subsequent_pages_scraped}
+                                    onChange={this.updateSubsequentPagesScraped}
+                                    disabled={this.state.configLoading.subsequent_pages_scraped}>
+                      </Form.Control>
+                    </td>
+                  </tr>
                 </tbody>
               </Table>
             </Card.Body>
@@ -413,7 +441,6 @@ export default class Info extends Component {
             </Card.Body>
           </Card>
         </div>
-
         <Modal centered size="lg" scrollable show={this.state.errorModal} onHide={() => this.setState({errorModal: false})} aria-labelledby="errorModalTitle">
           <Modal.Header closeButton>
             <Modal.Title id="errorModalTitle">Traceback</Modal.Title>
@@ -450,6 +477,8 @@ export default class Info extends Component {
             </Tabs>
           </Modal.Body>
         </Modal>
+        </>
+        )}
       </div>
     );
   }

@@ -22,7 +22,14 @@ class QueryParamsComponent extends Component {
       if (params[key] === undefined) {
         search.delete(key);
       } else {
-        search.set(key, params[key]);
+        if (Array.isArray(params[key])) {
+          search.delete(key);
+          params[key].forEach((value) => {
+            search.append(key, value);
+          });
+        } else {
+          search.set(key, params[key]);
+        }
       }
     });
     return "?" + search.toString();
@@ -85,7 +92,7 @@ class Post extends QueryParamsComponent {
               </div>
             </div>
             <div className="media-body mr-3 mr-md-0">
-              <h6 className="post-header d-inline d-md-flex align-items-center">
+              <h6 className="post-header d-inline">
                 {
                   post.prefixes.map((prefix) => (
                     <>
@@ -223,14 +230,26 @@ class Section extends QueryParamsComponent {
   updateSort(e) {
     this.setQueryParams({"sort": e.target.value})
   }
+  getQSPrefixes() {
+    const prefixes = this.getQuery().prefix;
+    // There are no prefixes in the QS.
+    if (typeof prefixes === "undefined") return [];
+    // There is a single prefix in the QS.
+    else if (!Array.isArray(prefixes)) return [prefixes];
+    // There are multiple prefixes in the QS.
+    else return prefixes
+  }
   setPrefix(prefix) {
-    this.setQueryParams({prefix})
+    this.setQueryParams({"prefix": this.getQSPrefixes().concat(prefix)})
   }
-  clearPrefix(e) {
-    this.setQueryParams({"prefix": undefined})
+  clearPrefix(prefix) {
+    this.setQueryParams({"prefix": this.getQSPrefixes().filter((i) => i !== prefix.toString())});
   }
-  parsePrefix() {
-    return this.getPrefix({id: parseInt(this.getQuery().prefix)});
+  // parsePrefix() {
+  //   return this.getPrefix({id: parseInt(this.getQuery().prefix)});
+  // }
+  parsePrefixes() {
+    return this.getQSPrefixes().map((prefixId) => this.getPrefix({id: parseInt(prefixId)}));
   }
   getPrefix(props) {
     return this.props.prefixes.filter((prefix) => {
@@ -306,11 +325,11 @@ class Section extends QueryParamsComponent {
         // with any color white does (other than black, which no prefixes use).
         if (prefix.bg_color === "white") prefix.bg_color = "black";
       });
-      Object.defineProperty(post, "downloading", {
-        get: function() {
-          return this.files.length > 0 && !this.files.every((file) => file.hasOwnProperty("bufferedDownload"));
-        }
-      });
+      // Object.defineProperty(post, "downloading", {
+      //   get: function() {
+      //     return this.files.length > 0 && !this.files.every((file) => file.hasOwnProperty("bufferedDownload"));
+      //   }
+      // });
       /*post.files.forEach((file) => {
         Api.download(file).then((buffer) => {
           file.bufferedDownload = buffer;
@@ -397,14 +416,14 @@ class Section extends QueryParamsComponent {
               <div className="filter-container rounded-top w-100 bg-light d-flex p-2">
                 <div className="filter-tag-container flex-grow-1">
                   {
-                    this.getQuery().prefix && (
+                    this.parsePrefixes().map((prefix) => (
                       <Badge pill
                              className="hover btn border-0 px-3 py-2 d-inline-flex justify-content-center align-items-center badge-primary btn-primary"
-                             onClick={this.clearPrefix}>
-                        Prefix: {this.parsePrefix().name}
+                             onClick={() => this.clearPrefix(prefix.id)}>
+                        Prefix: {prefix.name}
                         <FaTimes className="ml-1"/>
                       </Badge>
-                    )
+                    ))
                   }
                   {
                     this.getQuery().author && (

@@ -1,11 +1,12 @@
 import os
 import yaml
-from exceptions import ConfigError
+from commons import get_env_var
+from exceptions import ConfigError, MissingEnvironmentError
 
 def get_config_path():
-    if os.environ.get("CONFIG_PATH") is not None:
-        return os.environ.get("CONFIG_PATH")
-    else:
+    try:
+        return get_env_var("CONFIG_PATH")
+    except MissingEnvironmentError:
         raise ConfigError("Could not locate path to config file. Try setting CONFIG_PATH in your environment.")
 
 def load_config():
@@ -25,10 +26,7 @@ def save_config(conf):
 
 
 def get_credentials_path():
-    credentials_path = os.environ.get("LEAKTHIS_CREDENTIALS_FILE", "")
-    if credentials_path == "":
-        raise MissingEnvironmentError("LEAKTHIS_CREDENTIALS_FILE")
-    return credentials_path
+    return get_env_var("LEAKTHIS_CREDENTIALS_FILE")
 
 def load_credentials():
     credentials_path = get_credentials_path()

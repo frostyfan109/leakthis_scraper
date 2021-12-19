@@ -23,10 +23,13 @@ load_dotenv()
 DEFAULT_CONFIG = {
     "timeout_interval": 30000,
     "update_posts": True,
+    "max_retries": 3,
     "disable_db": False,
     "account_credentials": None,
     "print_posts_scraped": True,
-    "log_level": "ERROR"
+    "log_level": "ERROR",
+    "initial_pages_scraped": 2,
+    "subsequent_pages_scraped": 1
 }
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -55,9 +58,15 @@ class Scraper:
             "name": "Hip-Hop Leaks",
             "description": "Hip Hop leaks only. Any threads that aren't a direct song leak should go in hip-hop discussion or another relevant section."
         },
+        "other-genre-leaks": {
+            "path": "/othermedialeaks",
+            "id": 1,
+            "name": "Other Media Leaks",
+            "description": "For other forms of media or higher quality leaks."
+        },
         "hip-hop-discussion": {
             "path": "/hiphopdiscussion",
-            "id": 46,
+            "id": 43,
             "name": "Hip-Hop Discussion",
             "description": "A place to discuss hip-hop, both commercial releases and leaks."
         }
@@ -162,6 +171,56 @@ class Scraper:
         soup = BeautifulSoup(res.content, "html.parser")
         return soup.find("html")["data-csrf"]
 
+    def create_db_session(self):
+        return disableable_session_factory(self.config["disable_db"])
+
+    def retry_unknown_files(self):
+        session = self.create_db_session()
+        unknown_files = session.query(File).filter_by(unknown=True).filter(File.retries < self.config["max_retries"])
+        logger.info(f"Retrying {unknown_files.count()} unknown files.")
+        for file in unknown_files:
+            downloaded_file = self.download_file(file.url)
+            if downloaded_file.get("unknown"):
+                # Still unknown
+                file.retries += 1
+            else:
+                file.unknown = False
+                file.file_name = downloaded_file["file_name"]
+                file.download_url = downloaded_file["download_url"]
+                file.drive_id = downloaded_file["drive_id"]
+                file.drive_project_id = downloaded_file["drive_project_id"]
+                file.cover = downloaded_file["cover"]
+                logger.info(f"Successfully retrieved file with URL '{file.url}' for post '{file.get_post().title}'.")
+
+        session.commit()
+        session.close()
+
+    def download_file(self, url):
+        download = URLParser().download(url)
+        # Make sure the URL is associated with a supported hosting service
+        if download.get("unknown") == True:
+            return {
+                "unknown": True,
+                "url": url,
+                "exception": download["exception"],
+                "traceback": download["traceback"]
+            }
+        else:
+            download_url = download["download_url"]
+            stream = download["stream"]
+            file_name = download["file_name"]
+            (drive_id, drive_project_id) = upload_file(file_name, stream)
+            return {
+                "url": url,
+                "download_url": download_url,
+                "file_name": file_name,
+                "drive_id": drive_id,
+                "drive_project_id": drive_project_id,
+                "cover": None
+                # "cover": get_cover(stream)
+            }
+
+
     def parse_post_content(self, post_url):
         res = self.session.get(post_url)
         assert_is_ok(res)
@@ -202,33 +261,7 @@ class Scraper:
         # download_urls = [download_url for download_url in [URLParser().parse_download_url(url) for url in urls] if download_url != None]
         files = []
         for url in urls:
-            download = URLParser().download(url)
-            # Make sure the URL is associated with a supported hosting service
-            if download is None:
-                logger.warning(f"Could not identify associated service for url '{url}' on post '{post_url}'")
-                with open(os.path.join(os.path.dirname(__file__), "non_implemented_urls.txt"), "a+") as f:
-                    f.write(post_url + " " + url + "\n")
-            elif download.get("unknown") == True:
-                files.append({
-                    "unknown": True,
-                    "url": url,
-                    "exception": download["exception"],
-                    "traceback": download["traceback"]
-                })
-            else:
-                download_url = download["download_url"]
-                stream = download["stream"]
-                file_name = download["file_name"]
-                (drive_id, drive_project_id) = upload_file(file_name, stream)
-                files.append({
-                    "url": url,
-                    "download_url": download_url,
-                    "file_name": file_name,
-                    "drive_id": drive_id,
-                    "drive_project_id": drive_project_id,
-                    "cover": None
-                    # "cover": get_cover(stream)
-                })
+            files.append(self.download_file(url))
 
         return {
             "text": text,
@@ -239,7 +272,7 @@ class Scraper:
     def parse_prefix(self, soup, prefix_tag):
         name = prefix_tag.find("span").text
 
-        session = disableable_session_factory(self.config["disable_db"])
+        session = self.create_db_session()
         existing_prefix = session.query(Prefix).filter_by(name=name).first()
         if existing_prefix != None:
             return
@@ -321,7 +354,7 @@ class Scraper:
         }
 
     def parse_post(self, soup, el, section, post_callback):
-        session = disableable_session_factory(self.config["disable_db"])
+        session = self.create_db_session()
 
         post_data = self.parse_post_data(soup, el)
 
@@ -441,16 +474,23 @@ class Scraper:
             posts += self.parse_posts(res.content, section, callback)
         return posts
 
-    def scrape(self, section, callback, pages=5):
+    def scrape(self, sections, callback):
         # Scrape `pages` pages initially. Then only check the first page afterwards.
+        if len(sections) == 0:
+            raise Exception("Scraping sections cannot be empty.")
+        logger.info(f"Beginning scraping on sections: {', '.join(sections)}.")
+        pages = self.config["initial_pages_scraped"]
         while True:
             try:
                 self.update_config()
-                self.scrape_posts(section, pages, callback)
+                for section in sections:
+                    logger.info(f"Scraping first {pages} pages for section '{section}'.")
+                    self.scrape_posts(section, pages, callback)
+                self.retry_unknown_files()
                 # Pages should be >1 on first loop (where you want to scrape extra to catch up with when the scraper wasn't running)
                 # Set the pages back to only 1 after first loop to avoid scraping these extra pages again, because it's extremely unlikely
                 # that enough posts to overflow the first page will be posted between scraping timeouts after catching up on the first loop.
-                pages = 1
+                pages = self.config["subsequent_pages_scraped"]
             except KeyboardInterrupt as e:
                 raise e
             except Exception as e:
@@ -461,16 +501,16 @@ class Scraper:
                 # Dump the traceback to a log for further reference.
                 self.log_critical(e)
 
-            self.update_status(last_scraped=time.time())
+            self.update_status(last_scraped=time.time(), sections_scraped=sections)
 
             logger.info("Sleeping for " + str(self.config["timeout_interval"]/1000) + "s.")
             time.sleep(self.config["timeout_interval"]/1000)
 
     def scrape_hip_hop_leaks(self, *args, **kwargs):
-        return self.scrape("hip-hop-leaks", *args, **kwargs)
+        return self.scrape(["hip-hop-leaks"], *args, **kwargs)
 
     def scrape_hip_hop_discussion(self, *args, **kwargs):
-        return self.scrape("hip-hop-discussion", *args, **kwargs)
+        return self.scrape(["hip-hop-discussion"], *args, **kwargs)
 
     """ Log the error and dump the traceback to a text log for further reference. 
         This method is expected to be called within the exception context

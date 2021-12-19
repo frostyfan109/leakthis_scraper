@@ -6,7 +6,7 @@ from time import time
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit
 from abc import ABC, abstractmethod
-from exceptions import FileNotFoundError
+from exceptions import FileNotFoundError, UnknownHostingServiceError
 from commons import assert_is_ok
 from webdriver import create_chrome_driver
 from selenium.webdriver.support import expected_conditions as EC
@@ -241,21 +241,22 @@ class URLParser:
 
     def download(self, url):
         hosting_service = self.get_hosting_service(url)
-        if hosting_service is not None:
-            try:
-                file_name = hosting_service.parse_file_name(url)
-                download_url = hosting_service.parse_download_url(url)
-                stream = hosting_service.download(download_url)
-                return {
-                    "file_name": file_name,
-                    "download_url": download_url,
-                    "stream": stream
-                }
-            except Exception as e:
-                # Either file doesn't exist (FileNotFoundError) or something went wrong (e.g. connection was refused).
-                logger.error(e)
-                return {
-                    "unknown": True,
-                    "exception": e,
-                    "traceback": traceback.print_exc()
-                }
+        try:
+            if hosting_service is None:
+                raise UnknownHostingServiceError(url)
+            file_name = hosting_service.parse_file_name(url)
+            download_url = hosting_service.parse_download_url(url)
+            stream = hosting_service.download(download_url)
+            return {
+                "file_name": file_name,
+                "download_url": download_url,
+                "stream": stream
+            }
+        except Exception as e:
+            # Either file doesn't exist (FileNotFoundError) or something went wrong (e.g. connection was refused).
+            # logger.error(e)
+            return {
+                "unknown": True,
+                "exception": e,
+                "traceback": traceback.format_exc()
+            }
