@@ -6,6 +6,7 @@ import { Link, withRouter, generatePath } from 'react-router-dom';
 import { Card, Badge, Form, Button } from 'react-bootstrap';
 import Pagination from 'react-js-pagination';
 import { POST_COUNT } from './config.js';
+import { QueryParamsPageComponent } from './QueryParams.js';
 import { abbrNum } from './common.js';
 import Api from './Api.js';
 import qs from 'qs';
@@ -15,28 +16,7 @@ import moment from 'moment';
 import pluralize from 'pluralize';
 import classNames from 'classnames';
 
-class QueryParamsComponent extends Component {
-  setQueryParams(location, params) {
-    const search = new URLSearchParams(location.search);
-    Object.keys(params).forEach((key) => {
-      if (params[key] === undefined) {
-        search.delete(key);
-      } else {
-        if (Array.isArray(params[key])) {
-          search.delete(key);
-          params[key].forEach((value) => {
-            search.append(key, value);
-          });
-        } else {
-          search.set(key, params[key]);
-        }
-      }
-    });
-    return "?" + search.toString();
-  }
-};
-
-class Post extends QueryParamsComponent {
+class Post extends QueryParamsPageComponent {
   constructor(props) {
     super(props);
   }
@@ -95,7 +75,7 @@ class Post extends QueryParamsComponent {
               <h6 className="post-header d-inline">
                 {
                   post.prefixes.map((prefix) => (
-                    <>
+                    <React.Fragment key={prefix.id}>
                     <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(prefix.id)}>
                       <span className="d-flex justify-content-center align-items-center">
                         {/* Badge has 3px margin-y on default. Add 2px to margin-top so adjust for text alignment. */}
@@ -103,7 +83,7 @@ class Post extends QueryParamsComponent {
                       </span>
                     </a>
                     &nbsp;
-                    </>
+                    </React.Fragment>
                   ))
                 }
                 <a href="javascript:void(0);" className="text-body d-inline">{post.title}</a>
@@ -157,7 +137,7 @@ class Post extends QueryParamsComponent {
   }
 }
 
-class Section extends QueryParamsComponent {
+class Section extends QueryParamsPageComponent {
   constructor(props) {
     super(props);
 
@@ -183,6 +163,8 @@ class Section extends QueryParamsComponent {
       "popular",
       "active"
     ];
+    // Used when query param is not specified.
+    this.SORT_BY_DEFAULT = "latest"
   }
   setPlaying(post) {
     // if (this.state.paused && post.id === this.state.playing) {
@@ -240,7 +222,12 @@ class Section extends QueryParamsComponent {
     else return prefixes
   }
   setPrefix(prefix) {
-    this.setQueryParams({"prefix": this.getQSPrefixes().concat(prefix)})
+    const oldPrefixes = this.getQSPrefixes();
+    // Add prefix if not there, remove if there.
+    const prefixes = oldPrefixes.indexOf(prefix.toString()) === -1
+      ? oldPrefixes.concat(prefix)
+      : oldPrefixes.filter((p) => p !== prefix.toString());
+    this.setQueryParams({"prefix": prefixes });
   }
   clearPrefix(prefix) {
     this.setQueryParams({"prefix": this.getQSPrefixes().filter((i) => i !== prefix.toString())});
@@ -259,14 +246,6 @@ class Section extends QueryParamsComponent {
         return prefix[prop] === value;
       });
     })[0];
-  }
-  setPage(page, search) {
-    console.log(this.props.match.path);
-    console.log(generatePath(this.props.match.path, {page}), search)
-    this.props.history.push({
-      pathname: generatePath(this.props.match.path, {page}),
-      search: search || this.props.location.search
-    });
   }
   getPage() {
     return this.props.match.params.page ? parseInt(this.props.match.params.page) : 1;
@@ -307,12 +286,21 @@ class Section extends QueryParamsComponent {
     const sort = queryParams.sort;
     const prefix = queryParams.prefix;
     const author = queryParams.author;
+    const query = this.props.searchQuery;
     // Page parameter is optional. If it is omitted, it is page 0.
     const page = this.getPage();
     const { hidePinned } = this.state;
     // Loading
     this.setState({ posts: null });
-    const posts = await Api.getSectionPosts(this.props.section.path_name, page, {postCount: POST_COUNT, sortBy: sort, hidePinned, prefix, author});
+    const data = {
+      postCount: POST_COUNT,
+      sortBy: sort,
+      hidePinned,
+      prefix,
+      author,
+      query
+    };
+    const posts = await Api.getSectionPosts(this.props.section.path_name, page, data);
     if (this.getPage() - 1 !== posts.page) {
       // The API returned a different page than requested.
       // This happens when a page that doesn't exist (e.g. a page higher than the total number of pages) is requested.
@@ -351,21 +339,26 @@ class Section extends QueryParamsComponent {
     */
   }
   componentDidUpdate(prevProps) {
-    if (this.props.location !== prevProps.location) {
-      // Location changed; check if query string is the same
-      const newQuery = this.getQuery();
-      const oldQuery = qs.parse(prevProps.location.search, {ignoreQueryPrefix: true});
-      const newParams = this.props.match.params;
-      const oldParams = prevProps.match.params;
-      if (
-        newQuery.sort !== oldQuery.sort ||
-        newQuery.prefix !== oldQuery.prefix ||
-        newQuery.author !== oldQuery.author ||
-        newParams.page !== oldParams.page
-      ) {
-        // Relevant query parameters have changed. Update posts.
-        this.updatePosts();
-      }
+    const searchChanged = this.props.searchQuery !== prevProps.searchQuery;
+    const sectionChanged = this.props.section !== prevProps.section;
+    const prefixesChanged = this.props.prefixes !== prevProps.prefixes;
+    // Location changed; check if query string is the same
+    const newQuery = this.getQuery();
+    const oldQuery = qs.parse(prevProps.location.search, {ignoreQueryPrefix: true});
+    const newParams = this.props.match.params;
+    const oldParams = prevProps.match.params;
+    if (
+      newQuery.sort !== oldQuery.sort ||
+      newQuery.prefix !== oldQuery.prefix ||
+      newQuery.author !== oldQuery.author ||
+      // newQuery.query !== oldQuery.query ||
+      newParams.page !== oldParams.page ||
+      searchChanged ||
+      sectionChanged ||
+      prefixesChanged
+    ) {
+      // Relevant query parameters have changed. Update posts.
+      this.updatePosts();
     }
   }
   componentDidMount() {
@@ -391,6 +384,10 @@ class Section extends QueryParamsComponent {
           <div className={classNames("section-header mb-3 mx-3 mx-md-0 mt-3 mt-md-0", skeleton && "skeleton")}>
             <h5 className="section-title mb-0" style={skeleton ? {width: "15%"} : {}}>{!skeleton ? this.props.section.name : "\u00a0"}</h5>
             <small style={skeleton ? {display: "inline-block", width: "50%"} : {}}>{!skeleton ? this.props.section.description : "\u00a0"}</small>
+          </div>
+
+          <div className="section-search mb-3 mt-1 mt-md-0 mx-3 mx-md-0" style={{display: !this.props.searchQuery || skeleton ? "none" : undefined }}>
+            <span>{!skeleton ? `Search results for: ${this.props.searchQuery}` : "\u00a0"}</span>
           </div>
 
           <div className="section-outer-tools mb-3 d-flex justify-content-between align-items-center mt-1 mt-md-0 mx-3 mx-md-0">
@@ -419,7 +416,8 @@ class Section extends QueryParamsComponent {
                     this.parsePrefixes().map((prefix) => (
                       <Badge pill
                              className="hover btn border-0 px-3 py-2 d-inline-flex justify-content-center align-items-center badge-primary btn-primary"
-                             onClick={() => this.clearPrefix(prefix.id)}>
+                             onClick={() => this.clearPrefix(prefix.id)}
+                             key={prefix.id}>
                         Prefix: {prefix.name}
                         <FaTimes className="ml-1"/>
                       </Badge>
@@ -436,7 +434,7 @@ class Section extends QueryParamsComponent {
                     )
                   }
                 </div>
-                <Form.Control className="sort-select custom-select custom-select-sm w-auto" as="select" onChange={this.updateSort} value={this.getQuery().sort}>
+                <Form.Control className="sort-select custom-select custom-select-sm w-auto" as="select" onChange={this.updateSort} value={this.getQuery().sort || this.SORT_BY_DEFAULT}>
                   {this.SORT_BY.map((option) => <option key={option} value={option}>{option}</option>)}
                 </Form.Control>
               </div>
@@ -472,4 +470,5 @@ class Section extends QueryParamsComponent {
     )
   }
 }
+
 export default withRouter(Section);

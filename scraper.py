@@ -179,46 +179,53 @@ class Scraper:
         unknown_files = session.query(File).filter_by(unknown=True).filter(File.retries < self.config["max_retries"])
         logger.info(f"Retrying {unknown_files.count()} unknown files.")
         for file in unknown_files:
-            downloaded_file = self.download_file(file.url)
-            if downloaded_file.get("unknown"):
-                # Still unknown
-                file.retries += 1
-            else:
-                file.unknown = False
-                file.file_name = downloaded_file["file_name"]
-                file.download_url = downloaded_file["download_url"]
-                file.drive_id = downloaded_file["drive_id"]
-                file.drive_project_id = downloaded_file["drive_project_id"]
-                file.cover = downloaded_file["cover"]
-                logger.info(f"Successfully retrieved file with URL '{file.url}' for post '{file.get_post().title}'.")
+            downloaded_files = self.download_files(file.url)
+            """ Only retry URLs for single files. The data gets messy for URLs that point to multiple files. """
+            """ Note that download_files should never return an empty list. It should either return files or a list of one unknown file. """
+            if len(downloaded_files) == 1:
+                downloaded_file = downloaded_files[0]
+                if downloaded_file.get("unknown"):
+                    # Still unknown
+                    file.retries += 1
+                else:
+                    file.unknown = False
+                    file.file_name = downloaded_file["file_name"]
+                    file.download_url = downloaded_file["download_url"]
+                    file.drive_id = downloaded_file["drive_id"]
+                    file.drive_project_id = downloaded_file["drive_project_id"]
+                    file.cover = downloaded_file["cover"]
+                    logger.info(f"Successfully retrieved file with URL '{file.url}' for post '{file.get_post().title}'.")
 
         session.commit()
         session.close()
 
-    def download_file(self, url):
-        download = URLParser().download(url)
-        # Make sure the URL is associated with a supported hosting service
-        if download.get("unknown") == True:
-            return {
-                "unknown": True,
-                "url": url,
-                "exception": download["exception"],
-                "traceback": download["traceback"]
-            }
-        else:
-            download_url = download["download_url"]
-            stream = download["stream"]
-            file_name = download["file_name"]
-            (drive_id, drive_project_id) = upload_file(file_name, stream)
-            return {
-                "url": url,
-                "download_url": download_url,
-                "file_name": file_name,
-                "drive_id": drive_id,
-                "drive_project_id": drive_project_id,
-                "cover": None
-                # "cover": get_cover(stream)
-            }
+    def download_files(self, url):
+        downloads = URLParser().download(url)
+        files = []
+        for download in downloads:
+            # Make sure the URL is associated with a supported hosting service
+            if download.get("unknown") == True:
+                files.append({
+                    "unknown": True,
+                    "url": url,
+                    "exception": download["exception"],
+                    "traceback": download["traceback"]
+                })
+            else:
+                download_url = download["download_url"]
+                stream = download["stream"]
+                file_name = download["file_name"]
+                (drive_id, drive_project_id) = upload_file(file_name, stream)
+                files.append({
+                    "url": url,
+                    "download_url": download_url,
+                    "file_name": file_name,
+                    "drive_id": drive_id,
+                    "drive_project_id": drive_project_id,
+                    "cover": None
+                    # "cover": get_cover(stream)
+                })
+        return files
 
 
     def parse_post_content(self, post_url):
@@ -261,7 +268,7 @@ class Scraper:
         # download_urls = [download_url for download_url in [URLParser().parse_download_url(url) for url in urls] if download_url != None]
         files = []
         for url in urls:
-            files.append(self.download_file(url))
+            files.append(*self.download_files(url))
 
         return {
             "text": text,

@@ -1,15 +1,18 @@
 import React, { Component } from 'react';
 import { Navbar, Nav, Form, Button } from 'react-bootstrap';
 import { LinkContainer } from 'react-router-bootstrap';
-import { Switch, Route, Link, withRouter } from 'react-router-dom';
+import { Switch, Route, Link, Redirect, withRouter, generatePath, matchPath } from 'react-router-dom';
 import Section from './Section.js';
 import Info from './Info.js';
 import DriveInfo from './DriveInfo.js';
+import { QueryParamsPageComponent } from './QueryParams';
 import Api from './Api.js';
 import { POST_COUNT } from './config.js';
+import debounce from 'debounce-promise';
+import qs from 'qs';
 import './App.css';
 
-class App extends Component {
+class App extends QueryParamsPageComponent {
   constructor(props) {
     super(props);
 
@@ -18,10 +21,14 @@ class App extends Component {
       defaultSection: null,
       prefixes: null,
       info: null,
+      searchQuery: undefined,
+      realSearchQuery: undefined
     };
     this.isActive = this.isActive.bind(this);
     this.brandClicked = this.brandClicked.bind(this);
     this.getInfo = this.getInfo.bind(this);
+    
+    this.updateSearchParam = debounce(this.updateSearchParam.bind(this), 250);
   }
   loading() {
     return (
@@ -37,9 +44,36 @@ class App extends Component {
   brandClicked(e) {
     this.props.history.push("/");
   }
+  setSearchQuery(value) {
+    // this.setState({ searchQuery : value });
+    if (value === "") value = undefined;
+    this.setState({ searchQuery : value });
+    this.updateSearchParam(value);
+  }
+  updateSearchQuery() {
+    const newQuery = this.getQuery();
+    // const newValue = newQuery.query === undefined ? "" : newQuery.query;
+    this.setState({ searchQuery : newQuery.query });
+    this.setState({ realSearchQuery : newQuery.query });
+  }
+  updateSearchParam(value) {
+    const activeSection = this.getActiveSection();
+    this.props.history.push({
+      pathname: activeSection ? generatePath(this.createSectionPath(activeSection.path), {page: 1}) : this.props.location.pathname,
+      search: super.setQueryParams(this.props.location, { "query" : value })
+    });
+    // this.setPage(1, super.setQueryParams(this.props.location, { "query" : value }));
+    this.setState({ realSearchQuery : value });
+  }
   createSectionPath(path) {
     // Append the optional URL parameter `page` to a valid section path.
     return path + "/:page?";
+  }
+  getActiveSection() {
+    return Object.values(this.state.sections).find((section) => {
+      const path = this.createSectionPath(section.path);
+      if (matchPath(this.props.location.pathname, path)) return section;
+    });
   }
   getSections() {
     this.getCachedResource("sections", Api.getSections, (sections) => {
@@ -49,7 +83,7 @@ class App extends Component {
         section.path = "/" + sectionName;
         if (section.name === process.env.REACT_APP_DEFAULT_SECTION) defaultSection = section;
       });
-      this.setState({ sections, defaultSection });
+      if (JSON.stringify(sections) !== JSON.stringify(this.state.sections)) this.setState({ sections, defaultSection });
     });
   }
   getPrefixes() {
@@ -81,16 +115,31 @@ class App extends Component {
     const info = await Api.getInfo(options);
     this.setState({ info });
   }
-
+  getQuery() {
+    return qs.parse(this.props.location.search, {ignoreQueryPrefix: true});
+  }
+  componentDidUpdate(prevProps) {
+    if (this.props.location !== prevProps.location) {
+      // Location changed; check if query string is the same
+      const newQuery = this.getQuery();
+      const oldQuery = qs.parse(prevProps.location.search, {ignoreQueryPrefix: true});
+      if (newQuery.query !== oldQuery.query) {
+        // Relevant query parameters have changed. Update posts.
+        this.updateSearchQuery()
+      }
+    }
+  }
   componentDidMount() {
     this.getSections();
     this.getPrefixes();
     this.getInfo();
+    this.updateSearchQuery();
   }
   render() {
+    if (this.props.location.pathname === "/" && this.state.defaultSection) return <Redirect to={this.state.defaultSection.path}/>;
     return (
       <div className="App">
-        <Navbar bg="light" expand="lg">
+        <Navbar bg="light" expand="lg" sticky="top">
           <Nav.Link className="p-0" onClick={this.brandClicked}>
             <Navbar.Brand>{process.env.REACT_APP_WEBSITE_NAME}</Navbar.Brand>
           </Nav.Link>
@@ -117,14 +166,17 @@ class App extends Component {
               </LinkContainer>
             </Nav>
             <div className="m-2 m-lg-0"/>
-            <Form inline>
-              <Form.Control type="text" placeholder="Search" className="mr-sm-2"/>
-              <Button variant="outline-primary">Search</Button>
+            <Form inline onSubmit={(e) => e.preventDefault()}>
+              <Form.Control type="text"
+                            placeholder="Search"
+                            className="mr-sm-2"
+                            value={this.state.searchQuery || ""}
+                            onChange={(e) => this.setSearchQuery(e.target.value)}/>
             </Form>
           </Navbar.Collapse>
         </Navbar>
         <div className="main-content flex-grow-1">
-          <Switch>
+          <Switch ref={(el) => {window.el = el;}}>
             {(this.state.sections === null || this.state.prefixes === null) && (
               <Route path="*">
                 <Section section={null}/>
@@ -140,14 +192,14 @@ class App extends Component {
               Object.entries(this.state.sections || {}).map(([sectionName, section]) => {
                 return (
                   <Route path={this.createSectionPath(section.path)} key={section.path}>
-                    <Section section={section} prefixes={this.state.prefixes}/>
+                    <Section section={section} prefixes={this.state.prefixes} searchQuery={this.state.realSearchQuery}/>
                   </Route>
                 );
               })
             }
-            <Route path={this.createSectionPath("")}>
-              <Section section={this.state.defaultSection} prefixes={this.state.prefixes}/>
-            </Route>
+            {/* <Route path={this.createSectionPath("")}>
+              <Section section={this.state.defaultSection} prefixes={this.state.prefixes} searchQuery={this.state.realSearchQuery}/>
+            </Route> */}
           </Switch>
         </div>
       </div>

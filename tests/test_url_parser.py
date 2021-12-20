@@ -1,40 +1,46 @@
-import url_parser
+import os
+from url_parser import URLParser, GoFile, OnlyFilesIo
 
-def test_parse_onlyfiles_biz():
-    url = "https://onlyfiles.biz/file.php?id=frglrn2gkg1gtsc&type=mp3"
-    parser = url_parser.URLParser()
+url_parser = URLParser()
 
-    assert parser.parse_download_url(url) == "https://www.onlyfiles.biz/files/frglrn2gkg1gtsc.mp3"
+SHORT = True
 
-    hosting_service = parser.get_hosting_service(url)
-    assert isinstance(hosting_service, url_parser.OnlyFilesBiz)
-    assert hosting_service.parse_file_name(url) == "Wake_The_Dead_Pierre_Beat.mp3"
+mock_files = [
+    {
+        "file_name": "file_audio1.mp3",
+        "file_data": open(os.path.join(os.path.dirname(__file__), "mocks", "audio", "audio1.mp3"), "rb")
+    },
+    {
+        "file_name": "file_audio2.mp3",
+        "file_data": open(os.path.join(os.path.dirname(__file__), "mocks", "audio", "audio2.mp3"), "rb")
+    }
+]
 
-    assert parser.download("https://onlyfiles.biz/file.php?id=&type=mp3")["unknown"] == True
+for file in mock_files:
+    file["file_length"] = len(file["file_data"].read())
+    file["file_data"].seek(0)
 
-def test_parse_dbree():
-    url = "https://dbree.org/v/d12739"
-    parser = url_parser.URLParser()
+if SHORT: files = [mock_files[0]]
+else: files = mock_files
 
-    # Can't test parsing the download url because it isn't static and it's unclear how the url is generated.
-    # NOTE: When requests mocking is added, this can be tested because the download url will be static.
-    # assert parser.parse_download_url(url) == "https://dbree.org/d/d12739/988b9043272dcb2955ac06e4d3d7f1d7"
+def _test_hosting_service(host):
+    urls = host.upload_files(files)
+    # Reset file for next read
+    for file in files:
+        file["file_data"].seek(0)
+    for i in range(len(files)):
+        url = urls[i]
+        file = files[i]
+        download = url_parser.download(url)
+        assert download[0]["file_name"] == file["file_name"]
+        # Service may perform compression, but files should still be the same length. 
+        assert len(download[0]["stream"]) == file["file_length"]
+        # assert download[0]["stream"] == file["file_data"]
+        
+def test_onlyfiles_io():
+    _test_hosting_service(OnlyFilesIo())
 
-    hosting_service = parser.get_hosting_service(url)
-    assert isinstance(hosting_service, url_parser.DBREE)
-    assert hosting_service.parse_file_name(url) == "juice spanglish master01.mp3"
-
-    # Make sure that it correctly throws for nonexistent urls
-    # For now use a url that is guarenteed not to exist to test this.
-    # When requests mocking is added, this can be changed.
-    assert parser.download("https://dbree.org/v/")["unknown"] == True
-
-def test_parse_anonfiles():
-    url = "https://anonfiles.com/heve4700p2"
-    parser = url_parser.URLParser()
-
-    hosting_service = parser.get_hosting_service(url)
-    assert isinstance(hosting_service, url_parser.AnonFiles)
-    assert hosting_service.parse_file_name(url) == "Juice WRLD A .mp3"
-
-    assert parser.download("https://anonfiles.com/%20")["unknown"] == True
+def test_gofile():
+    _test_hosting_service(GoFile())
+    # url = GoFile().upload_files([file])[0]
+    # url = "https://goffile.io/d/Vl9QtA"

@@ -2,12 +2,15 @@ import requests
 import logging
 import re
 import traceback
+import json
+import inspect
+from functools import wraps
 from time import time
 from bs4 import BeautifulSoup
 from urllib.parse import urlsplit
 from abc import ABC, abstractmethod
-from exceptions import FileNotFoundError, UnknownHostingServiceError
-from commons import assert_is_ok
+from exceptions import FileNotFoundError, UnknownHostingServiceError, AuthenticationError
+from commons import assert_is_ok, get_mimetype
 from webdriver import create_chrome_driver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
@@ -51,6 +54,17 @@ class HostingService(ABC):
     def parse_file_name(self, url):
         raise NotImplementedError
 
+    def upload_files(self, files):
+        return []
+
+    def parse_url(self, url):
+        file_name = self.parse_file_name(url)
+        download_url = self.parse_download_url(url)
+        return (
+            file_name,
+            download_url
+        )
+
     def download(self, download_url):
         # Can override if necessary (i.e. requires setting headers/credentials to download)
         logger.info(f"Downloading '{download_url}'")
@@ -72,9 +86,180 @@ class HostingService(ABC):
             netloc.domain_name == host_netloc.domain_name
         )
 
+def api_request(method):
+    def _impl(self, *args, **kwargs):
+        if self.api_token is None:
+            self.login()
+        def call_with_auth(attempt=1):
+            try:
+                return method(self, *args, **kwargs)
+            except AuthenticationError as e:
+                logger.warning(e)
+                logger.error(f"GoFile API credentials invalidated (attempt {attempt}). Retrying...")
+                if attempt > 5:
+                    raise e
+                return call_with_auth(attempt + 1)
+        return call_with_auth()
+
+    return _impl
+        
+        
+class GoFile(HostingService):
+    name = "GoFile"
+    base_url = "https://gofile.io/"
+    api_url = "https://api.gofile.io/"
+
+    def __init__(self):
+        self.api_state = {
+            "api_token": None,
+            "root_folder": None
+        }
+
+    @property
+    def api_token(self):
+        return self.api_state["api_token"]
+
+    @api_token.setter
+    def api_token(self, value):
+        self.api_state["api_token"] = value
+
+    @property
+    def root_folder(self):
+        return self.api_state["root_folder"]
+    
+    @root_folder.setter
+    def root_folder(self, value):
+        self.api_state["root_folder"] = value
+
+    @staticmethod
+    def get_server_url(server):
+        return f"https://{server}.gofile.io/"
+
+    def assert_ok(self, data):
+        if data["status"] != "ok":
+            curframe = inspect.currentframe()
+            frames = inspect.getouterframes(curframe, 2)
+            method_name = frames[1][3]
+            raise AuthenticationError(f"Authenciation failed with GoFile. Response: '{json.dumps(data)}'. Method: '{method_name}'")
+
+    def make_api_request(self, *args, **kwargs):
+        res = session.request(*args, **kwargs)
+        data = res.json()
+        self.assert_ok(data)
+        return data
+
+    def login(self):
+        data = self.make_api_request("get", self.api_url + "createAccount")
+
+        self.api_token = data["data"]["token"]
+
+        session.cookies.set("accountToken", self.api_token)
+
+        data = self.make_api_request("get", self.api_url + "getAccountDetails?token=" + self.api_token)
+
+        self.root_folder = data["data"]["rootFolder"]
+
+    @api_request
+    def get_download_data(self, url):
+        content_id = urlsplit(url).path.split("/")[-1]
+        data = self.make_api_request("get", self.api_url + f"getContent?contentId={content_id}&token={self.api_token}&websiteToken=websiteToken")
+        return data["data"]
+
+    def parse_download_url(self, url):
+        data = self.get_download_data(url)
+        return [file["link"] for file in data["contents"].values()]
+
+    def parse_file_name(self, url):
+        data = self.get_download_data(url)
+        return [file["name"] for file in data["contents"].values()]
+
+
+    @api_request
+    def get_server(self):
+        data = self.make_api_request("get", self.api_url + "getServer")
+        return data["data"]["server"]
+        
+
+    @api_request
+    def create_folder(self):
+        data = {
+            "token": self.api_token,
+            "parentFolderId": self.root_folder
+        }
+        data = self.make_api_request("put", self.api_url + "createFolder", data=data)
+
+        folder_id =  data["data"]["id"]
+
+        return folder_id
+        
+
+    @api_request
+    def set_folder_option(self, folder_id, option, value):
+        data = {
+            "token": self.api_token,
+            "folderId": folder_id,
+            "option": option,
+            "value": value
+        }
+        self.make_api_request("put", self.api_url + "setFolderOption", data=data)
+
+    @api_request
+    def share_folder(self, folder_id):
+        self.make_api_request("get", self.api_url + f"shareFolder?token={self.api_token}&folderId={folder_id}")
+
+    def create_public_folder(self):
+        folder_id = self.create_folder()
+        self.set_folder_option(folder_id, "public", "true")
+        self.share_folder(folder_id)
+        return folder_id
+
+    @api_request
+    def upload_files(self, files):        
+        server = self.get_server()
+        uploaded_files = []
+        for file in files:
+            file_name = file["file_name"]
+            file_data = file["file_data"]
+
+            folder_id = self.create_public_folder()
+            data = {
+                "folderId": folder_id,
+                "token": self.api_token
+            }
+            files = [
+                ('file', (file_name, file_data, get_mimetype(file_name)))
+            ]
+            data = self.make_api_request("post", self.get_server_url(server) + "uploadFile", data=data, files=files)
+            uploaded_files.append(data["data"]["downloadPage"])
+        return uploaded_files
+
+    # @api_request
+    # def download(self, download_url):
+    #     return super().download(download_url)
+
 class OnlyFilesIo(HostingService):
     name = "OnlyFiles (Io)"
     base_url = "https://onlyfiles.io/"
+
+    def upload_files(self, files):
+        uploaded_files = []
+        for file in files:
+            file_name = file["file_name"]
+            file_data = file["file_data"]
+            data = {
+                "name": file_name,
+                "chunk": "0",
+                "chunks": "1"
+            }
+            files = [
+                ("file", ("blob", file_data, get_mimetype(file_name)))
+            ]
+            res = session.post(self.base_url + "upload", data=data, files=files)
+            data = res.json()
+            if data.get("ok") != True:
+                raise Exception(f"Failed to upload file '{file_name}' to service '{self.name}'. Data: {json.dumps(data)}.")
+            uploaded_files.append(self.base_url + data["info"])
+        return uploaded_files
 
     def parse_download_url(self, url):
         # It seems that this service places audio pages under the /f/{ID} route, and audio files under
@@ -218,7 +403,14 @@ class AnonFiles(HostingService):
         soup = BeautifulSoup(res.content, "html.parser")
         return soup.select_one(".top-wrapper").select_one("h1").text
 
-Hosts = [OnlyFilesIo(), OnlyFilesBiz(), OnlyFilesCC(), DBREE(), AnonFiles()]
+Hosts = [
+    OnlyFilesIo(),
+    OnlyFilesBiz(),
+    OnlyFilesCC(),
+    # DBREE(),
+    AnonFiles(),
+    GoFile()
+]
 
 class URLParser:
     def __init__(self):
@@ -234,29 +426,38 @@ class URLParser:
                 break
         # logger.debug(f"No service implementation is associated with '{url}'.")
 
+    """
     def parse_download_url(self, url):
         hosting_service = self.get_hosting_service(url)
         if hosting_service is not None:
             return hosting_service.parse_download_url(url)
+    """
 
     def download(self, url):
         hosting_service = self.get_hosting_service(url)
         try:
             if hosting_service is None:
                 raise UnknownHostingServiceError(url)
-            file_name = hosting_service.parse_file_name(url)
-            download_url = hosting_service.parse_download_url(url)
-            stream = hosting_service.download(download_url)
-            return {
-                "file_name": file_name,
-                "download_url": download_url,
-                "stream": stream
-            }
+
+            files = []
+
+            (file_names, download_urls) = hosting_service.parse_url(url)
+            if not isinstance(file_names, list):
+                file_names = [file_names]
+                download_urls = [download_urls]
+            for (file_name, download_url) in zip(file_names, download_urls):
+                stream = hosting_service.download(download_url)
+                files.append({
+                    "file_name": file_name,
+                    "download_url": download_url,
+                    "stream": stream
+                })
+            return files
         except Exception as e:
             # Either file doesn't exist (FileNotFoundError) or something went wrong (e.g. connection was refused).
             # logger.error(e)
-            return {
+            return [{
                 "unknown": True,
                 "exception": e,
                 "traceback": traceback.format_exc()
-            }
+            }]

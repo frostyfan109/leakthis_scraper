@@ -2,6 +2,10 @@
 .pytest_cache
 __pycache__
 
+# Env
+venv/
+env/
+
 # Credentials
 credentials.json
 credentials.yaml

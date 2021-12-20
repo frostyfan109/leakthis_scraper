@@ -1,5 +1,6 @@
 import os
 from io import BytesIO
+from mimetypes import guess_type
 from mutagen import File as MutagenFile
 from exceptions import MissingEnvironmentError
 
@@ -31,3 +32,6 @@ def get_cover(stream):
     id3 = MutagenFile(BytesIO(stream))
     if id3 is not None and hasattr(id3, "tags") and id3.tags is not None and "APIC:" in id3.tags:
         return id3.tags["APIC:"].data
+
+def get_mimetype(file_name):
+    return guess_type(file_name)[0]

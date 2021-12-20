@@ -3,10 +3,10 @@ import { API_URL as BASE_URL, OMIT_UNKNOWN_FILES } from './config.js';
 
 export class Api {
   async getSectionPosts(sectionName, page, query) {
-    const { postCount, sortBy, hidePinned, prefix, author } = query;
+    const { postCount, sortBy, hidePinned, prefix, author, query: searchQuery } = query;
     page -= 1; // api starts pages at 0
     const queryString = qs.stringify(
-      { posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_raw_id: prefix, author: author },
+      { posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_raw_id: prefix, author, query: searchQuery },
       { arrayFormat: "repeat" }
     );
     const res = await fetch(`${BASE_URL}/section/${sectionName}/${page}?${queryString}`);

@@ -7,91 +7,36 @@ import Api from './Api';
 import Loading from './Loading';
 
 export default function DriveInfo({ info }) {
-    const [files, setFiles] = useState({});
-    const [page, setPage] = useState(0);
-    const [perPage, setPerPage] = useState(50);
     const [projectId, setProjectId] = useState(null);
-    const [loadingFiles, setLoadingFiles] = useState(false);
-    const loading = useMemo(() => (
-        files.length === 0 ||
-        info === null ||
-        projectId === null
-    ), [files, info])
-    // const activeFiles = useMemo(() => getActiveFiles(projectId), [files, perPage]);
-    const fetchFiles = async () => {
-        setLoadingFiles(true);
-        const newFiles = await Api.getDriveFiles(projectId, page, perPage);
-        const newState = {...files};
-        if (newState[projectId] === undefined) newState[projectId] = [];
-        newState[projectId].push(newFiles);
-        setFiles(newState);
-        setLoadingFiles(false);
-    }
-    const getActiveFiles = (id) => {
-        return (files[id] || []).filter((obj) => obj.per_page === perPage).flatMap((obj) => obj.files)
-    }
-
+    const loading = projectId === null;
     useEffect(() => {
-        if (info !== null && projectId === null) {
-            setProjectId(Object.keys(info.status.account_info.drive)[0]);
-        }
-    }, [info])
-
-    useEffect(() => {
-        if (projectId !== null) {
-            if (files[projectId] && files[projectId].find((f) => f.page === 0) === undefined) setPage(0);
-            fetchFiles();
-        }
-    }, [projectId, page]);
-
-    useEffect(() => {
-        // setFiles(null);
-        // setPage(0)
-    }, [perPage]);
-
-    const loadNextPage = () => {
-        setPage(page + 1);
-    }
+        if (projectId === null && info !== null) setProjectId(Object.keys(info.status.account_info.drive)[0]);
+    }, [info]);
 
     return (
-        <div className="py-4 px-4 w-100 h-100 d-flex flex-column">
+        <div className="py-4 px-4 w-100 h-100">
             {loading ? (
                 <div className="h-100 w-100 d-flex justify-content-center align-items-center">
                     <Loading/>
                 </div>
             ) : (
-                <div className="d-flex align-items-start">
-                    <Tab.Container activeKey={projectId}>
-                        <Nav variant="pills" className="flex-column text-nowrap" style={{position: "sticky", top: "16px"}}>
+                <div className="d-flex h-100 align-items-start">
+                    <Tab.Container activeKey={projectId} className="h-100">
+                        <Nav variant="pills" className="flex-column text-nowrap" style={{position: "sticky", top: "24px"}}>
                             <h5 className="navbar-brand">Project</h5>
                             {
                                 Object.keys(info.status.account_info.drive).map((id) => (
-                                    <Nav.Item>
+                                    <Nav.Item key={id}>
                                         <Nav.Link eventKey={id} onClick={() => setProjectId(id)}>{id}</Nav.Link>
                                     </Nav.Item>
                                 ))
                             }
                         </Nav>
-                        <Tab.Content className="pl-3 flex-grow-1">
+                        <Tab.Content className="pl-3 flex-grow-1 h-100">
                             {
                                 Object.keys(info.status.account_info.drive).map((id) => (
-                                    <Tab.Pane eventKey={id}>
-                                        <div style={{display:"grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gridAutoRows: "auto", gap: "20px", wordBreak: "break-all"}}>
-                                            {
-                                                getActiveFiles(id).map((file) => (
-                                                    <FileCard file={file}/>
-                                                ))
-                                            }
-                                        </div>
-                                        <div className="d-flex justify-content-center mt-3">
-                                            {
-                                                loadingFiles ? (
-                                                    <Loading/>
-                                                ) : (
-                                                    <Button variant="outline-primary" onClick={loadNextPage}>Load more</Button>
-                                                )
-                                            }
-                                        </div>
+                                    <Tab.Pane eventKey={id} className="h-100" key={id}>
+                                        <DriveFiles projectId={id}/>
                                     </Tab.Pane>
                                 ))
                             }
@@ -99,6 +44,74 @@ export default function DriveInfo({ info }) {
                     </Tab.Container>
                 </div>
             )}
+        </div>
+    );
+}
+
+function DriveFiles({ projectId }) {
+    const [page, setPage] = useState(0);
+    const [perPage, setPerPage] = useState(50);
+    const [loadingFiles, setLoadingFiles] = useState(false);
+    const [files, setFiles] = useState([]);
+
+    const activeFiles = useMemo(() => {
+        return files.reduce((acc, cur) => {
+            const dupe = acc.filter((obj) => obj.page === cur.page && obj.per_page === cur.per_page).length > 0;
+            if (cur.per_page === perPage && !dupe) acc.push(cur);
+            return acc;
+        }, []).flatMap((obj) => obj.files);
+    }, [perPage, files]);
+
+    useEffect(async () => {
+        if (files.find((obj) => obj.page === page && obj.perPage === perPage) === undefined) {
+            setLoadingFiles(true);
+            const newFiles = await Api.getDriveFiles(projectId, page, perPage);
+            setFiles([
+                ...files,
+                newFiles
+            ]);
+            setLoadingFiles(false);
+        }
+    }, [page]);
+
+    const loadNextPage = () => {
+        setPage(page + 1);
+    }
+    return (
+        <div className="drive-files h-100">
+            {
+                files.length === 0 ? (
+                    <div className="d-flex justify-content-center align-items-center h-100">
+                        <Loading/>
+                    </div>
+                ) : (
+                    <>
+                    <div style={{
+                        display:"grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                        gridAutoRows: "auto",
+                        gap: "20px",
+                        wordBreak: "break-all"
+                    }}>
+                        {
+                            activeFiles.map((file) => (
+                                <FileCard file={file} key={file.id}/>
+                            ))
+                        }
+                    </div>
+                    <div className="d-flex justify-content-center mt-3">
+                        {
+                            loadingFiles ? (
+                                <Loading/>
+                            ) : (
+                                <Button variant="outline-primary" onClick={loadNextPage}>Load more</Button>
+                            )
+                        }
+                    </div>
+                    </>
+                )
+            }
+            
         </div>
     );
 }
@@ -161,10 +174,8 @@ function FileCard({ file }) {
             <Card.Body className="pt-0">
                 <Card.Title>{file.title}</Card.Title>
                 <Card.Subtitle className="mb-3 text-muted">{file.id}</Card.Subtitle>
-                <Card.Text>
-                    <div>Size: {prettyBytes(parseInt(file.fileSize)).replace(" ", "")}</div>
-                    <div>Created: {moment(file.createdDate).fromNow()}</div>
-                </Card.Text>
+                <Card.Text className="mb-0">Size: {prettyBytes(parseInt(file.fileSize)).replace(" ", "")}</Card.Text>
+                <Card.Text>Created: {moment(file.createdDate).fromNow()}</Card.Text>
                 {cardEmbed()}
             </Card.Body>
         </Card>

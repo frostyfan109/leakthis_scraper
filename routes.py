@@ -32,6 +32,7 @@ section_entries_parser.add_argument("sort_by", type=str, help="Sorting category"
 section_entries_parser.add_argument("hide_pinned", type=inputs.boolean, help="Include/exclude pinned posts", location="args", default=True)
 section_entries_parser.add_argument("prefix_raw_id", type=int, action="append", help="Filter by prefix", location="args", default=None)
 section_entries_parser.add_argument("author", type=str, help="Filter by author", location="args", default=None)
+section_entries_parser.add_argument("query", type=str, help="Search query", location="args", default=None)
 
 @api.route("/section/<string:section_name>/<int:page>")
 class SectionEntries(Resource):
@@ -44,6 +45,7 @@ class SectionEntries(Resource):
         hide_pinned = args["hide_pinned"]
         prefix_raw_ids = args["prefix_raw_id"]
         author = args["author"]
+        query = args["query"]
         section_id = Scraper.SECTIONS[section_name]["id"]
 
         session = Flask_Session()
@@ -63,6 +65,12 @@ class SectionEntries(Resource):
                     filtered = filtered.filter(Post.prefixes.contains(prefix.name))
             if author is not None:
                 filtered = filtered.filter(Post.created_by == author)
+            if query is not None:
+                filtered = filtered.filter(
+                    Post.title.contains(query) |
+                    Post.created_by.contains(query) |
+                    Post.body.contains(query)
+                )
             # if hide_pinned:
                 # filtered = filtered.filter(Post.pinned == False)
             if sort_by == "latest":
