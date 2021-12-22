@@ -2,14 +2,14 @@ import qs from 'qs';
 import { API_URL as BASE_URL, OMIT_UNKNOWN_FILES } from './config.js';
 
 export class Api {
-  async getSectionPosts(sectionName, page, query) {
+  async getSectionPosts(sectionName, page, query, fetchOptions={}) {
     const { postCount, sortBy, hidePinned, prefix, author, query: searchQuery } = query;
     page -= 1; // api starts pages at 0
     const queryString = qs.stringify(
       { posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_raw_id: prefix, author, query: searchQuery },
       { arrayFormat: "repeat" }
     );
-    const res = await fetch(`${BASE_URL}/section/${sectionName}/${page}?${queryString}`);
+    const res = await fetch(`${BASE_URL}/section/${sectionName}/${page}?${queryString}`, fetchOptions);
     const posts = await res.json();
     if (OMIT_UNKNOWN_FILES) {
       posts.posts.forEach((post) => {
@@ -18,7 +18,8 @@ export class Api {
     }
     return posts;
   }
-  async download_url(file) {
+  /*
+  async getDownloadUrl(file) {
     const driveRes = await fetch(`${BASE_URL}/download/${file.drive_id}`);
     const driveUrl = await driveRes.json();
     return driveUrl;
@@ -27,6 +28,7 @@ export class Api {
     blob = blob.slice(0, blob.size, "audio/mpeg");
     return blob;
   }
+  */
   async getSections() {
     const res = await fetch(`${BASE_URL}/sections`);
     const sections = await res.json();
@@ -43,8 +45,9 @@ export class Api {
     const info = await res.json();
     return info;
   }
-  async getDriveFiles(projectId, page, perPage) {
-    const res = await fetch(`${BASE_URL}/drive_files/${projectId}/${page}?${qs.stringify({ files: perPage })}`);
+  async getDriveFiles(projectId, page, perPage, searchQuery, fetchOptions={}) {
+    if (searchQuery === "") searchQuery = undefined;
+    const res = await fetch(`${BASE_URL}/drive_files/${projectId}/${page}?${qs.stringify({ files: perPage, query: searchQuery })}`, fetchOptions);
     const files = await res.json();
     return files;
   }
@@ -57,6 +60,14 @@ export class Api {
     });
     return await res.json();
   }
+  getDownloadUrl(file) {
+    return `${BASE_URL}/download/${file.id}`;
+  }
+  /*
+  async getDownloadUrl(file) {
+    const res = await fetch(`${BASE_URL}/download_url/${file.id}`);
+    return await res.json();
+  }
+  */
 }
-// Api.Route("section").Route("10").Route("5").QueryArg()
 export default new Api()

@@ -1,12 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { Component, useState, useMemo, useEffect } from 'react';
 import { Card, Button, Tab, Nav } from 'react-bootstrap';
 import { FaFileArchive, FaFile } from 'react-icons/fa';
 import moment from 'moment';
 import prettyBytes from 'pretty-bytes';
+import useAbortController from './hooks/use-abort-controller';
 import Api from './Api';
 import Loading from './Loading';
+import { delay } from './common';
 
-export default function DriveInfo({ info }) {
+export default function DriveInfo({ info, searchQuery }) {
     const [projectId, setProjectId] = useState(null);
     const loading = projectId === null;
     useEffect(() => {
@@ -14,7 +16,7 @@ export default function DriveInfo({ info }) {
     }, [info]);
 
     return (
-        <div className="py-4 px-4 w-100 h-100">
+        <div className="py-4 px-4 w-100">
             {loading ? (
                 <div className="h-100 w-100 d-flex justify-content-center align-items-center">
                     <Loading/>
@@ -36,7 +38,7 @@ export default function DriveInfo({ info }) {
                             {
                                 Object.keys(info.status.account_info.drive).map((id) => (
                                     <Tab.Pane eventKey={id} className="h-100" key={id}>
-                                        <DriveFiles projectId={id}/>
+                                        <DriveFiles projectId={id} searchQuery={searchQuery}/>
                                     </Tab.Pane>
                                 ))
                             }
@@ -47,32 +49,59 @@ export default function DriveInfo({ info }) {
         </div>
     );
 }
-
-function DriveFiles({ projectId }) {
+/*
+function DriveFiles({ projectId, searchQuery }) {
     const [page, setPage] = useState(0);
-    const [perPage, setPerPage] = useState(50);
+    const [perPage, setPerPage] = useState(2);
     const [loadingFiles, setLoadingFiles] = useState(false);
     const [files, setFiles] = useState([]);
+    const getSignal = useAbortController();
 
     const activeFiles = useMemo(() => {
         return files.reduce((acc, cur) => {
-            const dupe = acc.filter((obj) => obj.page === cur.page && obj.per_page === cur.per_page).length > 0;
-            if (cur.per_page === perPage && !dupe) acc.push(cur);
+            const searchTerm = (searchQuery === "" || searchQuery === undefined) ? null : searchQuery;
+            const dupe = acc.filter((obj) => obj.page === cur.page && obj.per_page === cur.per_page && obj.search_term === cur.search_term).length > 0;
+            if (
+                cur.per_page === perPage &&
+                cur.search_term === searchTerm &&
+                !dupe
+            ) acc.push(cur);
             return acc;
-        }, []).flatMap((obj) => obj.files);
-    }, [perPage, files]);
+        }, []);
+    }, [perPage, files, searchQuery]);
+    const flatActiveFiles = useMemo(() => activeFiles.flatMap((obj) => obj.files), [activeFiles]);
+    const [loadedResults, totalResults, lastPageLoaded] = useMemo(() => {
+        return [
+            flatActiveFiles.length,
+            activeFiles.length === 0 ? 0 : activeFiles[0].total,
+            activeFiles.some((obj) => obj.page + 1 === obj.pages)
+        ]
+    }, [activeFiles]);
 
     useEffect(async () => {
-        if (files.find((obj) => obj.page === page && obj.perPage === perPage) === undefined) {
-            setLoadingFiles(true);
-            const newFiles = await Api.getDriveFiles(projectId, page, perPage);
-            setFiles([
-                ...files,
-                newFiles
-            ]);
-            setLoadingFiles(false);
+        const signal = getSignal();
+        setLoadingFiles(true);
+        const searchTerm = (searchQuery === "" || searchQuery === undefined) ? null : searchQuery;
+        if (files.find((obj) => obj.page === page && obj.per_page === perPage && obj.search_term === searchTerm) === undefined) {
+            try {
+                const newFiles = await Api.getDriveFiles(projectId, page, perPage, searchQuery, { signal });
+                setFiles([
+                    ...files,
+                    newFiles
+                ]);
+            } catch (e) {
+                if (e.name !== "AbortError") throw e;
+            }
+        } else {
+            console.log(`Already have search results for page=${page}, per_page=${perPage}, and search_term=${searchQuery}`);
         }
-    }, [page]);
+        console.log("set loading false");
+        setLoadingFiles(false);
+    }, [page, searchQuery]);
+
+    useEffect(() => {
+        setPage(activeFiles.length === 0 ? 0 : activeFiles.sort((a, b) => b.page - a.page)[0].page);
+    }, [searchQuery]);
 
     const loadNextPage = () => {
         setPage(page + 1);
@@ -80,12 +109,15 @@ function DriveFiles({ projectId }) {
     return (
         <div className="drive-files h-100">
             {
-                files.length === 0 ? (
+                flatActiveFiles.length === 0 ? (
                     <div className="d-flex justify-content-center align-items-center h-100">
                         <Loading/>
                     </div>
                 ) : (
                     <>
+                    {!loadingFiles && (<>
+                        <h5 className="mb-3">Showing {loadedResults} of {totalResults} results</h5>
+                    </>)}
                     <div style={{
                         display:"grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
@@ -94,7 +126,7 @@ function DriveFiles({ projectId }) {
                         wordBreak: "break-all"
                     }}>
                         {
-                            activeFiles.map((file) => (
+                            flatActiveFiles.map((file) => (
                                 <FileCard file={file} key={file.id}/>
                             ))
                         }
@@ -104,7 +136,7 @@ function DriveFiles({ projectId }) {
                             loadingFiles ? (
                                 <Loading/>
                             ) : (
-                                <Button variant="outline-primary" onClick={loadNextPage}>Load more</Button>
+                                !lastPageLoaded && <Button variant="outline-primary" onClick={loadNextPage}>Load more</Button>
                             )
                         }
                     </div>
@@ -114,6 +146,136 @@ function DriveFiles({ projectId }) {
             
         </div>
     );
+}
+*/
+
+class DriveFiles extends Component {
+    constructor(props) {
+        super(props);
+
+        this.state = {
+            files: [],
+            perPage: 50,
+            fetchingFiles: []
+        };
+    }
+    getSearchTerm() {
+        return (this.props.searchQuery === "" || this.props.searchQuery === undefined) ? null : this.props.searchQuery;
+    }
+    getNextPage() {
+        const activeFiles = this.getActiveFiles();
+        // If there are no pages loaded, page 0 is the next page.
+        // Otherwise, get the obj with the highest page number, and return 1 greater
+        return activeFiles.length === 0 ? 0 : activeFiles.sort((a, b) => b.page - a.page)[0].page + 1;
+    }
+    getFilePage(files, page, perPage, searchTerm) {
+        return files.find((obj) => obj.page === page && obj.per_page === perPage && obj.search_term === searchTerm);
+    }
+    async getFiles(page) {
+        
+        const { fetchingFiles } = this.state;
+        const args = [page, this.state.perPage, this.getSearchTerm()]
+        if (this.getFilePage(fetchingFiles, ...args) !== undefined || this.getFilePage(this.state.files, ...args) !== undefined) {
+            return;
+        }
+        fetchingFiles.push({
+            page,
+            per_page: this.state.perPage,
+            search_term: this.getSearchTerm()
+        })
+        this.setState({ fetchingFiles });
+        const newFiles = await Api.getDriveFiles(this.props.projectId, page, this.state.perPage, this.props.searchQuery);
+        const { files } = this.state;
+        
+        // Only add if it isn't a dupe (two requests for same page fired).
+        if (this.getFilePage(files, newFiles.page, newFiles.per_page, newFiles.search_term) === undefined) files.push(newFiles);
+
+        this.setState({ files, fetchingFiles: this.state.fetchingFiles.filter((p) => p !== this.getFilePage(this.state.fetchingFiles, ...args)) });
+    }
+    getActiveFiles() {
+        return this.state.files.reduce((acc, cur) => {
+            const searchTerm = this.getSearchTerm();
+            const dupe = acc.filter(
+                (obj) => obj.page === cur.page && obj.per_page === cur.per_page && obj.search_term === cur.search_term
+            ).length > 0;
+            if (
+                cur.per_page === this.state.perPage &&
+                cur.search_term === searchTerm &&
+                !dupe
+            ) acc.push(cur);
+            return acc;
+        }, []);
+    }
+    isPageLoading(page) {
+        const { fetchingFiles } = this.state;
+        return this.getFilePage(fetchingFiles, page, this.state.perPage, this.getSearchTerm()) !== undefined;
+    }
+    nextPageLoading() {
+        return this.isPageLoading(this.getNextPage());
+    }
+    loadNextPage() {
+        this.getFiles(this.getNextPage());
+    }
+    componentDidUpdate(prevProps) {
+        if (this.props.searchQuery !== prevProps.searchQuery) {
+            this.getFiles(0);
+        }
+    }
+    componentDidMount() {
+        this.getFiles(0);
+    }
+    render() {
+        const activeFiles = this.getActiveFiles();
+        const flatActiveFiles = activeFiles.flatMap((obj) => obj.files);
+        const totalResults = activeFiles.length === 0 ? 0 : activeFiles[0].total;
+        const loadedResults = flatActiveFiles.length;
+        const lastPageLoaded = loadedResults === totalResults;
+        return (
+            <div className="drive-files h-100 d-flex flex-column">
+                {
+                    this.isPageLoading(0) ? (
+                        <div className="d-flex justify-content-center align-items-center h-100">
+                            <Loading/>
+                        </div>
+                    ) : (
+                        <>
+                        {this.getSearchTerm() !== null ? (
+                            <>
+                            <h5>Search results for: {this.props.searchQuery}</h5>
+                            <h6 className="mb-3 text-muted">Showing {loadedResults} of {totalResults} results</h6>
+                            </>
+                        ) : (
+                            <h5 className="mb-3">Showing {loadedResults} of {totalResults} results</h5>
+                        )}
+                        <div style={{
+                            display:"grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                            gridAutoRows: "auto",
+                            gap: "20px",
+                            wordBreak: "break-all"
+                        }}>
+                            {
+                                flatActiveFiles.map((file) => (
+                                    <FileCard file={file} key={file.id}/>
+                                ))
+                            }
+                        </div>
+                        <div className="d-flex justify-content-center mt-3 flex-grow-1 align-items-end">
+                            {
+                                this.nextPageLoading() ? (
+                                    <Loading/>
+                                ) : (
+                                    !lastPageLoaded && <Button variant="outline-primary" onClick={() => this.loadNextPage()}>Load more</Button>
+                                )
+                            }
+                        </div>
+                        </>
+                    )
+                }
+                
+            </div>
+        );
+    }
 }
 
 const FileType = Object.freeze({

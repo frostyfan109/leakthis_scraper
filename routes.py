@@ -12,8 +12,11 @@ from dateutil.relativedelta import relativedelta
 from sqlalchemy import extract, func
 from flask import Response, request, send_file, stream_with_context
 from flask_restplus import Resource, inputs, abort
+from werkzeug import datastructures
 from mimetypes import guess_type
-from api import app, api, Flask_Session
+from fuzzywuzzy.fuzz import partial_ratio
+from urllib.parse import urlencode
+from api import app, api, cache, Flask_Session
 from db import Post, File, Prefix
 from config import load_config, save_config
 from main import Scraper
@@ -21,10 +24,22 @@ from exceptions import AuthenticationError
 from drive import (
     get_direct_url, get_direct_url2, get_file,
     get_drive, get_drive_project_ids, load_storage_cache,
-    get_available_project_ids, get_active_project_id
+    get_available_project_ids, get_active_project_id, get_all_files,
+    upload_file
 )
+from pydrive.files import ApiRequestError
 
 logger = logging.getLogger(__file__)
+
+
+def cache_key():
+    args = request.args
+    key = request.path + '?' + urlencode([
+        (k, v) for k in sorted(args) for v in sorted(args.getlist(k))
+    ])
+    return key
+
+x = {}
 
 section_entries_parser = api.parser()
 section_entries_parser.add_argument("posts", type=int, help="Posts per page", location="args", default=20)
@@ -33,7 +48,6 @@ section_entries_parser.add_argument("hide_pinned", type=inputs.boolean, help="In
 section_entries_parser.add_argument("prefix_raw_id", type=int, action="append", help="Filter by prefix", location="args", default=None)
 section_entries_parser.add_argument("author", type=str, help="Filter by author", location="args", default=None)
 section_entries_parser.add_argument("query", type=str, help="Search query", location="args", default=None)
-
 @api.route("/section/<string:section_name>/<int:page>")
 class SectionEntries(Resource):
     @api.expect(section_entries_parser)
@@ -105,7 +119,8 @@ class SectionEntries(Resource):
             "pages": num_pages,
             "total": non_pinned.count(),
             "page": page,
-            "per_page": per_page
+            "per_page": per_page,
+            "search_term": query
         }
 
 @api.route("/sections")
@@ -124,21 +139,57 @@ class Prefixes(Resource):
 
 drive_files_parser = api.parser()
 drive_files_parser.add_argument("files", type=int, help="Files per page", location="args", default=20)
+drive_files_parser.add_argument("query", type=str, help="Search query", location="args", default=None)
+# drive_files_parser.add_argument("page_token", type=str, help="Drive page token", location="args", default=None)
 @api.route("/drive_files/<string:drive_id>/<int:page>")
 class DriveFiles(Resource):
+    # Only update drive results every 5 minutes.
+    """ Could update this to automatically cache all the other pages since it needs to load them all regardless. """
+    @cache.cached(timeout=300, key_prefix=cache_key)
     def get(self, drive_id, page):
         args = drive_files_parser.parse_args()
         per_page = args["files"]
+        query = args["query"]
+        logger.critical(f"Grabbing uncached resource with args: {drive_id} {page} {per_page} {query}")
+        """ In the future, to shorten response times, could return nextPageToken and use it to get the next page faster. """
+        def match_file(file):
+            # file_name = re.sub(r"\W+", " ", file["name"]).lower()
+            file_name = file["title"].lower()
+            return (
+                (partial_ratio(file_name, query.lower()) > 80 if query is not None else True)
+            )
+        # page_token = args["page_token"]
         try:
             drive = get_drive(drive_id)
-            files = drive.ListFile().GetList()
+            drive_data = {}
+            # drive_data = { "maxResults" : per_page }
+            # if page_token is not None: drive_data["pageToken"] = page_token
+            results = drive.ListFile(drive_data)
+            files = results.GetList()
+            files = [
+                file for file in files if match_file(file)
+            ]
+            page_files = files[page * per_page : page*per_page + per_page]
+            page_files = [
+                {
+                    k: v for (k, v) in f.items() if k in [
+                        "kind", "id", "etag", "selfLink", "webContentLink", "alternateLink",
+                        "embedLink", "iconLink", "title", "mimeType", "createdDate", "modifiedDate",
+                        "downloadUrl", "originalFilename", "fileExtension", "md5Checksum", "fileSize",
+                        "quotaBytesUsed", "ownerNames", "explicitlyTrashed"
+                    ]
+                } for f in page_files
+            ]
             return {
                 # e.g., page=0, per_page=20 => files[0:20]; page=2, per_page=5 => files[10:15]
-                "files": files[page * per_page : page*per_page + per_page],
+                "files": page_files,
                 "total": len(files),
                 "pages": ceil(len(files) / per_page),
                 "page": page,
-                "per_page": per_page
+                "per_page": per_page,
+                # "page_token": page_token,
+                # "next_page_token": page.metadata["nextPageToken"],
+                "search_term": query,
             }
         except AuthenticationError as e:
             return abort(400, f"Invalid project ID '{drive_id}'.")
@@ -320,15 +371,26 @@ class Info(Resource):
             }
         }
 
-@api.route("/download_url/<string:drive_id>")
+@api.route("/download_url/<int:file_id>")
 class DownloadURL(Resource):
-    def get(self, drive_id):
+    def get(self, file_id):
+        session = Flask_Session()
+        file = session.query(File).filter_by(id=file_id).first()
+        if file is None:
+            session.close()
+            return abort(404, f"File with id '{file_id}' does not exist.")
+        if file.unknown:
+            session.close()
+            return abort(404, f"File with id '{file_id}' is not downloaded.")
+        drive_id = file.drive_id
+        session.close()
         return get_direct_url2(drive_id)
 
 direct_download_parser = api.parser()
 direct_download_parser.add_argument("download", type=inputs.boolean, help="Download as attachment rather than inline.", location="args", default=True, required=False)
 @api.route("/download/<int:file_id>")
 class DirectDownload(Resource):
+    # @cache.cached(timeout=3600, key_prefix=cache_key)
     def get(self, file_id):
         args = direct_download_parser.parse_args()
 
@@ -337,25 +399,34 @@ class DirectDownload(Resource):
         session = Flask_Session()
         file = session.query(File).filter_by(id=file_id).first()
         if file is None:
+            session.close()
             return abort(404, f"File with id '{file_id}' does not exist.")
         if file.unknown:
+            session.close()
             return abort(404, f"File with id '{file_id}' is not downloaded.")
         drive_file = get_file(file.drive_project_id, file.drive_id)
-        drive_file.FetchContent()
+        try:
+            drive_file.FetchContent()
+        except ApiRequestError as e:
+            session.close()
+            return abort(404, f"Could not download file with id '{file_id}'.", drive_error=True)
         # Could also get Drive's inferred mimetype from file.FetchMetadata() and file["mimeType"],
         # but it's more accurate to just go off of the file name in the first place.
         file_name = file.file_name
         mimetype = guess_type(file.file_name)[0]
         session.close()
+
+        def stream_file():
+            chunk = drive_file.content.read(8192)
+            while len(chunk) != 0:
+                yield chunk
+                chunk = drive_file.content.read(8192)
         response = send_file(
             drive_file.content,
-            # Docs say that download_name is supported in Flask 2.0.x, but apparently it isn't.
-            # download_name=file_name,
-            # Sets Content-Disposition
-            # as_attachment=False,
-            # attachment_filename=file_name,
+            conditional=True,
             mimetype=mimetype
         )
+        drive_file.content.seek(0)
         response.headers.set("Content-Disposition", f'{"attachment" if attachment else "inline"}; filename="{file_name}"')
         response.headers.set("Content-Length", str(drive_file.content.getbuffer().nbytes))
         return response
@@ -413,3 +484,49 @@ class Config(Resource):
         return config
         # print_posts_scraped = form.get("print_posts_scraped")
         # log_level = form.get("log_level")
+
+"""
+# On launch, load every drive file into memory. Then, communicate with scraper to keep it updated.
+mc = memcache.Client(["127.0.0.1:11211"])
+def create_drive_cache():
+    return {
+        project_id: get_all_files(project_id) for project_id in get_drive_project_ids()
+    }
+def set_drive_cache(cache):
+    mc.set("drive_cache", cache)
+def get_drive_cache():
+    return mc.get("drive_cache")
+
+set_drive_cache(create_drive_cache())
+
+drive_write_parser = api.parser()
+drive_write_parser.add_argument("file", type=datastructures.FileStorage, location="files")
+@api.route("/drive_write/<string:file_name>")
+class DriveWrite(Resource):
+    @api.expect(drive_write_parser)
+    def post(self, file_name):
+        args = drive_write_parser.parse_args()
+        file = args["file"]
+        (drive_project_id, drive_id) = upload_file(file_name, file.read())
+
+        drive_cache = get_drive_cache()
+        drive_cache[drive_project_id].insert(0, get_file(drive_project_id, drive_id))
+        set_drive_cache(drive_cache)
+
+        return [drive_project_id, drive_id]
+
+
+@api.route("/drive/list")
+class DriveRead(Resource):
+    def get(self):
+        return {
+            key: [file["title"] for file in value]
+            for key, value in get_drive_cache()
+        }
+
+@api.route("/drive/refresh")
+class DriveCacheRefresh(Resource):
+    def get(self):
+        set_drive_cache(create_drive_cache())
+
+"""

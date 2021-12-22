@@ -3,13 +3,20 @@ from flask import Flask
 from flask_restplus import Api
 # from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flask_caching import Cache
 from db import DB_URI, Base, flask_session_factory
 
 logger = logging.getLogger(__file__)
 
 app = Flask(__name__)
+app.config.from_mapping({
+    "CACHE_TYPE": "simple",
+    # 5 mins
+    "CACHE_DEFAULT_TIMEOUT": 300
+})
 CORS(app)
 api = Api(app)
+cache = Cache(app)
 
 # app.config["SQLALCHEMY_DATABASE_URI"] = DB_URI
 

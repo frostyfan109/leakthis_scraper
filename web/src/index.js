@@ -4,11 +4,15 @@ import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import moment from 'moment';
+import momentDurationFormatSetup from 'moment-duration-format';
 import 'nantes/css/animate.css';
 import 'nantes/css/style.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
 // import 'nantes/css/owl.carousel.css';
 // import 'nantes/css/owl.theme.default.min.css';
+
+momentDurationFormatSetup(moment);
 
 ReactDOM.render(
   <React.StrictMode>

@@ -57,7 +57,12 @@ class App extends QueryParamsPageComponent {
     this.setState({ realSearchQuery : newQuery.query });
   }
   updateSearchParam(value) {
-    const activeSection = this.getActiveSection();
+    let activeSection = undefined;
+    try {
+      activeSection = this.getActiveSection();
+    } catch {
+      // skeleton state, sections undefined.
+    }
     this.props.history.push({
       pathname: activeSection ? generatePath(this.createSectionPath(activeSection.path), {page: 1}) : this.props.location.pathname,
       search: super.setQueryParams(this.props.location, { "query" : value })
@@ -138,7 +143,7 @@ class App extends QueryParamsPageComponent {
   render() {
     if (this.props.location.pathname === "/" && this.state.defaultSection) return <Redirect to={this.state.defaultSection.path}/>;
     return (
-      <div className="App">
+      <div className="App h-auto" style={{minHeight: "100%"}}>
         <Navbar bg="light" expand="lg" sticky="top">
           <Nav.Link className="p-0" onClick={this.brandClicked}>
             <Navbar.Brand>{process.env.REACT_APP_WEBSITE_NAME}</Navbar.Brand>
@@ -179,14 +184,14 @@ class App extends QueryParamsPageComponent {
           <Switch ref={(el) => {window.el = el;}}>
             {(this.state.sections === null || this.state.prefixes === null) && (
               <Route path="*">
-                <Section section={null}/>
+                <Section section={null} searchQuery={this.state.realSearchQuery}/>
               </Route>
             )}
             <Route path="/info">
               <Info info={this.state.info} updateInfo={this.getInfo}/>
             </Route>
             <Route path="/drive-info">
-              <DriveInfo info={this.state.info}/>
+              <DriveInfo info={this.state.info} searchQuery={this.state.realSearchQuery}/>
             </Route>
             {
               Object.entries(this.state.sections || {}).map(([sectionName, section]) => {

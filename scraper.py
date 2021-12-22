@@ -215,7 +215,7 @@ class Scraper:
                 download_url = download["download_url"]
                 stream = download["stream"]
                 file_name = download["file_name"]
-                (drive_id, drive_project_id) = upload_file(file_name, stream)
+                (drive_project_id, drive_id) = upload_file(file_name, stream)
                 files.append({
                     "url": url,
                     "download_url": download_url,

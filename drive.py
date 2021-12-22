@@ -139,7 +139,7 @@ def upload_file(file_name, stream):
         "role": "reader"
     })
     update_storage_cache(load_storage_cache())
-    return (file["id"], project_id)
+    return (project_id, file["id"])
 
 
 def get_file(project_id, id):
@@ -191,3 +191,6 @@ Google Drive initialized with project ids: {", ".join(get_drive_project_ids())}.
 Storage breakdown ({DRIVE_STORAGE_CUTOFF * 100}% cutoff):
 - {(N_L + "- ").join(storage_breakdown)}
     """.strip()
+
+def get_all_files(project_id):
+    return get_drive(project_id).ListFile().GetList()

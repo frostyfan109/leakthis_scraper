@@ -9,3 +9,8 @@ export function abbrNum(n) {
 export function linkToPost(post) {
   return window.location.pathname;
 }
+export function delay(timeout) {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(), timeout);
+  });
+}

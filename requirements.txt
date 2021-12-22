@@ -21,3 +21,5 @@ chromedriver_autoinstaller
 python-dotenv
 pyyaml
 keyring
+fuzzywuzzy
+flask-caching==1.10.1
