@@ -148,7 +148,7 @@ div.filter-container {
   height: 39px;
 }
 .outer-player-container .audio-player {
-  transition: transform .1s ease-in-out;
+  transition: all .1s ease-in-out;
 }
 .outer-player-container.play .audio-player {
   /* margin-left: 4px; */
@@ -163,6 +163,7 @@ div.filter-container {
 }
 .outer-player-container .audio-player:hover {
   transform: scale(1.1);
+  /* filter: brightness(.9); */
 }
 .outer-player-container.play .audio-player.error, .outer-player-container.play .audio-player.loading  {
   font-size: 28px !important;

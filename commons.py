@@ -34,4 +34,14 @@ def get_cover(stream):
         return id3.tags["APIC:"].data
 
 def get_mimetype(file_name):
+    """ Extend to include common mimetypes that mimetypes doesn't properly support. """
+    common_types = {
+        ".m4a": "audio/x-m4a",
+        ".rar": "application/x-rar-compressed",
+        ".7z": "application/x-7z-compressed",
+        ".aac": "audio/aac"
+    }
+    for key in common_types:
+        if file_name.endswith(key):
+            return common_types[key]
     return guess_type(file_name)[0]

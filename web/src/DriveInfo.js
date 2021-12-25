@@ -6,7 +6,7 @@ import prettyBytes from 'pretty-bytes';
 import useAbortController from './hooks/use-abort-controller';
 import Api from './Api';
 import Loading from './Loading';
-import { delay } from './common';
+import { delay, getFileType, FileType } from './common';
 
 export default function DriveInfo({ info, searchQuery }) {
     const [projectId, setProjectId] = useState(null);
@@ -278,20 +278,8 @@ class DriveFiles extends Component {
     }
 }
 
-const FileType = Object.freeze({
-    ZIP: 0,
-    AUDIO: 1,
-    VIDEO: 2,
-    UNKNOWN: 3
-});
-
 function FileCard({ file }) {
-    let type;
-    const mainType = file.mimeType.split("/")[0];
-    if (file.mimeType === "application/zip") type = FileType.ZIP;
-    else if (mainType === "audio") type = FileType.AUDIO;
-    else if (mainType === "video") type = FileType.VIDEO;
-    else type = FileType.UNKNOWN;
+    let [type, subType] = getFileType(file.mimeType);
 
     const cardImage = () => {
         switch (type) {

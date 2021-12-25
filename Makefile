@@ -20,8 +20,11 @@ run.scraper:
 run.api:
 	${PYTHON} api.py
 
+run.conversion_api:
+	${PYTHON} audio_conversion_api.py
+
 run:
-	run.web run.scraper run.api
+	run.web run.scraper run.api run.conversion_api
 
 test.python:
 	${PYTHON} -m pytest tests

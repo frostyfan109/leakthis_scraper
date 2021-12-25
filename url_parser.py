@@ -450,6 +450,7 @@ class URLParser:
                 files.append({
                     "file_name": file_name,
                     "download_url": download_url,
+                    "hosting_service": hosting_service,
                     "stream": stream
                 })
             return files

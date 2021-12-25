@@ -10,9 +10,10 @@ import Pagination from 'react-js-pagination';
 import Draggable from './Draggable';
 import { POST_COUNT } from './config.js';
 import { QueryParamsPageComponent } from './QueryParams.js';
-import { abbrNum } from './common.js';
+import { abbrNum, getFileType, FileType, FileSubType } from './common.js';
 import Api from './Api.js';
 import qs from 'qs';
+import JSZip from 'jszip';
 import fileDownload from 'js-file-download';
 import * as mm from 'music-metadata-browser';
 import Skeleton from 'react-loading-skeleton';
@@ -32,15 +33,36 @@ class Post extends QueryParamsPageComponent {
     this.dragContainerRef = React.createRef();
     this.dragRef = React.createRef();
   }
+  getZipFileNames() {
+    const { playing: { zip: { files } } } = this.props;
+    // If every file is in a single dir at the top level, then return the contents
+    // of the directory without the dir name.
+    // I.e. a zip of a directory.
+    const topLevelDirs = Object.values(files).filter((file) => {
+      const isTopDir = file.name.split("/").length === 2 && file.name.endsWith("/") && file.dir;
+      return isTopDir;
+    });
+    if (topLevelDirs.length === 1) {
+      const topLevelDir = topLevelDirs[0];
+      // Remove top level dir from files and replace first instance of its name with empty string.
+      return Object.values(files).filter((file) => file !== topLevelDir).map((file) => file.name.replace(topLevelDir.name, ""));
+    }
+    return Object.values(files).map((file) => file.name);
+  }
   getProgress() {
     const { playing } = this.props;
-    // Safeguard NaN values.
-    const current = isNaN(playing.audio.currentTime) ? 0 : playing.audio.currentTime;
-    const duration = isNaN(playing.audio.duration) ? 0 : playing.audio.duration;
-    // Safeguard indeterminate 0 / 0;
-    if (current === 0 && duration === 0) return 0;
-    return current / duration;
-
+    switch (playing.type) {
+      case FileType.AUDIO:
+        // Safeguard NaN values.
+        const current = isNaN(playing.audio.currentTime) ? 0 : playing.audio.currentTime;
+        const duration = isNaN(playing.audio.duration) ? 0 : playing.audio.duration;
+        // Safeguard indeterminate 0 / 0;
+        if (current === 0 && duration === 0) return 0;
+        return current / duration;
+      default:
+        return 1;
+    }
+    
   }
   getScrubberPosition() {
     if (!this.dragContainerRef.current) return 0;
@@ -77,18 +99,24 @@ class Post extends QueryParamsPageComponent {
     // this.updateScrubberPosition(x - this.dragContainerRef.current.getBoundingClientRect().left);
   }
   getPlayCircleImage() {
-    const fillColor = "rgb(188, 189, 191)";
-    let startDeg = 0;
-    let endDeg = this.getProgress() * 360;
-    let color = fillColor;
-    if (endDeg > 180) {
-      endDeg -= 180;
-      color = "var(--primary)";
-    } 
-    return `
-      linear-gradient(${endDeg + 90}deg, transparent 50%, ${color} 50%),
-      linear-gradient(${startDeg + 90}deg, ${fillColor} 50%, transparent 50%)
-    `;
+    switch (this.props.playing.type) {
+      case FileType.AUDIO:
+        const fillColor = "rgb(188, 189, 191)";
+        let startDeg = 0;
+        let endDeg = this.getProgress() * 360;
+        let color = fillColor;
+        if (endDeg > 180) {
+          endDeg -= 180;
+          color = "var(--primary)";
+        } 
+        return `
+          linear-gradient(${endDeg + 90}deg, transparent 50%, ${color} 50%),
+          linear-gradient(${startDeg + 90}deg, ${fillColor} 50%, transparent 50%)
+        `;
+      default:
+        return ``;
+    }
+    
   }
   formatProgress(time) {
     if (isNaN(time)) time = 0;
@@ -115,15 +143,39 @@ class Post extends QueryParamsPageComponent {
       unpausePlaying = () => {};
     }
     let playing = false;
-    let paused = false;
     let file = null;
+    let IS_AUDIO = false;
+    let IS_ZIP = false;
+    
+    let IS_PAUSED = false;
+    let IS_LOADING = false;
+    let IS_ERROR = false;
     if (playingObj) {
       playing = post.id === playingObj.post_id;
-      
-      paused = (playing && playingObj.audio.paused);
-      if (this.state.dragging) paused = playingObj.audio.wasPaused;
       // this.state.dragging && console.log(playingObj.audio.wasPaused);
       file = playingObj;
+
+      switch (file.type) {
+        case FileType.ZIP: {
+          IS_ZIP = true;
+          IS_PAUSED = true;
+          IS_LOADING = file.zip.loading;
+          IS_ERROR = file.zip.failed;
+          break;
+        }
+        case FileType.AUDIO: {
+          IS_AUDIO = true;
+          IS_PAUSED = playing && playingObj.audio.paused;
+          if (this.state.dragging) IS_PAUSED = playingObj.audio.wasPaused;
+          IS_LOADING = file.audio.loading;
+          IS_ERROR = file.audio.failed;
+          break;
+        }
+        default: {
+          IS_PAUSED = true;
+          break; 
+        }
+      }
 
     }
     return (
@@ -140,32 +192,29 @@ class Post extends QueryParamsPageComponent {
                    classNames(
                      "d-flex justify-content-center align-items-center rounded-circle outer-player-container",
                      playing && "play",
-                     paused && "paused",
+                     IS_PAUSED && "paused",
                      playing ? "mr-3" : "mr-2",
-                     playing && file.audio.loading && (
-                       file.audio.failed ? "error" : "spinner-border text-primary"
-                     )
+                     playing && (IS_ERROR ? "error" : IS_LOADING ? "spinner-border text-primary" : "")
                    )
                  }
                  style={{
                    width: "46px",
                    height: "46px",
-                   backgroundImage: playing ? this.getPlayCircleImage() : undefined,
-                   backgroundColor: playing && file.audio.loading ? "rgb(188, 189, 191)" : undefined }}
-                 onClick={() => !playing ? setPlaying(post, 0) : (paused ? unpausePlaying()  : setPaused())}>
+                   backgroundImage: playing && !IS_LOADING ? this.getPlayCircleImage() : undefined,
+                   backgroundColor: playing && IS_LOADING ? "rgb(188, 189, 191)" : ""
+                 }}
+                 onClick={() => !playing ? setPlaying(post, 0) : (IS_PAUSED ? unpausePlaying()  : setPaused())}>
               <div className="rounded-circle inner-player-container">
                 {
-                  playing && file.audio.loading ? (
-                    file.audio.error ? (
-                      <IoAlertSharp className="audio-player error text-danger"/>
-                    ) : (
-                      null
-                    )
-                  ) : (playing && !paused ? (
+                  (playing && IS_ERROR) ? (
+                    <IoAlertSharp className="audio-player error text-danger"/>
+                  ) : (playing && IS_LOADING) ? (
+                    null
+                  ) : (playing && !IS_PAUSED) ? (
                     <FaPause className="audio-player"/>
                   ) : (
                     <FaPlay className={classNames("audio-player", playing && this.getProgress() === 1 && "complete")}/>
-                  ))
+                  )
                 }
               </div>
             </div>
@@ -210,51 +259,71 @@ class Post extends QueryParamsPageComponent {
         {
           playing && (
             <div className="audio-player-controls p-2 d-flex flex-column align-items-center border-top bg-light">
-              <div className={classNames("audio-player-info d-flex align-items-center mb-1", (file.audio.failed || file.audio.loading) && "text-disabled")}>
+              <div className={classNames("audio-player-info d-flex align-items-center mb-1", (IS_ERROR || IS_LOADING) && "text-disabled")}>
                 {file.file_name} {post.files.length > 1 && `(${this.props.getCurrentTrackPosition() + 1} of ${post.files.length})`}
               </div>
               <div className="bottom-controls d-flex align-items-center">
-                <IoRepeatSharp className={classNames("audio-repeat ml-2", file.audio.failed && "disabled", this.props.repeatEnabled && "enabled")}
+                <IoRepeatSharp className={classNames("audio-repeat ml-2", IS_ERROR && "disabled", this.props.repeatEnabled && "enabled")}
                                onClick={() => this.props.toggleRepeat()}/>
-                <IoPlaySkipBackSharp className={classNames("audio-skip ml-2", (!this.props.canSkipBackward() || file.audio.failed) && "disabled")} onClick={() => this.props.canSkipBackward() && this.props.skipTrack(-1)}/>
-                <span className="progress-time progress-time-elapsed small">{this.formatProgress(file.audio.currentTime)}</span>
-                <div className="audio-progress-outer flex-grow-1 d-flex flex-column justify-content-center"
-                     ref={this.dragContainerRef}
-                     onMouseDown={(e) => {
-                      //  e.preventDefault();
-                      this.updateScrubberPosition(e.nativeEvent.offsetX);
-                      setTimeout(() => {
-                       this.dragRef.current._onMouseDown({
-                         stopPropagation: e.stopPropagation,
-                         preventDefault: e.preventDefault,
-                         button: e.button,
-                         pageX: e.pageX,
-                         pageY: e.pageY
-                       });
-                      }, 0);
-                     }}>
-                  <div className="audio-progress-inner rounded">
-                    <div className="audio-progress-bar rounded" style={{"width": this.getProgress() * 100 + "%"}}/>
+                <IoPlaySkipBackSharp className={classNames("audio-skip ml-2", !this.props.canSkipBackward() && "disabled")} onClick={() => this.props.canSkipBackward() && this.props.skipTrack(-1)}/>
+                {IS_AUDIO ? (
+                  <>
+                  <span className="progress-time progress-time-elapsed small">{this.formatProgress(file.audio.currentTime)}</span>
+                  <div className="audio-progress-outer flex-grow-1 d-flex flex-column justify-content-center"
+                      ref={this.dragContainerRef}
+                      onMouseDown={(e) => {
+                        //  e.preventDefault();
+                        this.updateScrubberPosition(e.nativeEvent.offsetX);
+                        setTimeout(() => {
+                        this.dragRef.current._onMouseDown({
+                          stopPropagation: e.stopPropagation,
+                          preventDefault: e.preventDefault,
+                          button: e.button,
+                          pageX: e.pageX,
+                          pageY: e.pageY
+                        });
+                        }, 0);
+                      }}>
+                    <div className="audio-progress-inner rounded">
+                      <div className="audio-progress-bar rounded" style={{"width": this.getProgress() * 100 + "%"}}/>
+                    </div>
+                    <Draggable x={this.getScrubberPosition()}
+                              y={0}
+                              ref={this.dragRef}
+                              onStart={(e, x, y) => {e.stopPropagation();this.startScrubbing(x)}}
+                              onEnd={(e, x, y) => {e.stopPropagation();this.stopScrubbing(x)}}
+                              onMove={(e, x, y) => {
+                                e.stopPropagation();
+                                if (!this.state.dragging) return;
+                                this.updateScrubberPosition(x - this.dragContainerRef.current.getBoundingClientRect().left);
+                              }}>
+                      <div className={classNames("audio-progress-scrubber", this.state.dragging && "dragging")}
+                          style={{display: IS_LOADING || IS_ERROR ? "none" : undefined}}/>
+                    </Draggable>
                   </div>
-                  <Draggable x={this.getScrubberPosition()}
-                             y={0}
-                             ref={this.dragRef}
-                             onStart={(e, x, y) => {e.stopPropagation();this.startScrubbing(x)}}
-                             onEnd={(e, x, y) => {e.stopPropagation();this.stopScrubbing(x)}}
-                             onMove={(e, x, y) => {
-                               e.stopPropagation();
-                               if (!this.state.dragging) return;
-                               this.updateScrubberPosition(x - this.dragContainerRef.current.getBoundingClientRect().left);
-                             }}>
-                    <div className={classNames("audio-progress-scrubber", this.state.dragging && "dragging")}
-                         style={{display: file.audio.loading || file.audio.failed ? "none" : undefined}}/>
-                  </Draggable>
-                </div>
-                <span className="progress-time progress-time-left small">{this.formatProgress(file.audio.duration)}</span>
-                <IoPlaySkipForwardSharp className={classNames("audio-skip mr-2", (!this.props.canSkipForward() || file.audio.failed) && "disabled")} onClick={() => this.props.canSkipForward() && this.props.skipTrack(1)}/>
-                <IoDownloadSharp className={classNames("audio-download mr-2", file.audio.failed && "disabled")}
-                                 onClick={() => !file.audio.failed && this.props.downloadPlaying()}/>
-                {file.audio.error && (
+                  <span className="progress-time progress-time-left small">{this.formatProgress(file.audio.duration)}</span>
+                  </>
+                ) : IS_ZIP ? (
+                  <div className="flex-grow-1 px-2 text-center" style={{textOverflow: "ellipsis", overflow: "hidden", flexBasis: 0}}>
+                    {
+                    IS_ERROR ? (
+                      <span className="text-danger"></span>
+                    ) : IS_LOADING ? (
+                      <span className=""></span>
+                    ) : (
+                      <small className="text-nowrap">
+                        {this.getZipFileNames().join(", ")}
+                      </small>
+                    )
+                    }
+                  </div>
+                ) : (
+                  <div className="flex-grow-1"/>
+                )}
+                <IoPlaySkipForwardSharp className={classNames("audio-skip mr-2", !this.props.canSkipForward() && "disabled")} onClick={() => this.props.canSkipForward() && this.props.skipTrack(1)}/>
+                <IoDownloadSharp className={classNames("audio-download mr-2")}
+                                 onClick={() => this.props.downloadPlaying()}/>
+                {IS_ERROR && (
                   <IoRefreshSharp className="audio-reload mr-2 text-primary"
                                   onClick={() => this.props.reloadPlaying()}/>
                 )}
@@ -313,56 +382,105 @@ class Section extends QueryParamsPageComponent {
   toggleRepeat() {
     this.setState({ repeat: !this.state.repeat });
   }
-  prepareAudio(file) {
-    file.audio = new Audio(file.src);
-    file.audio.loading = true;
+  async prepareFile(file) {
+    [file.type, file.subType] = getFileType(file.mime_type);
+
     const updatePlayingState = () => {
       if (this.state.playing === file) this.setState({ playing : file });
     }
-    file.audio.addEventListener("timeupdate", () => {
-      // Tracking for scrubbing/etc.
-      if (file.audio.currentTime === file.audio.duration) {
-        if (file.audio._pausedBeforeEnd === undefined) file.audio._pausedBeforeEnd = file.audio.prevFilePaused;
-        delete file.audio.prevFilePaused;
+
+    switch (file.type) {
+      case FileType.ZIP: {
+        const zip = new JSZip();
+        zip.loading = true;
+        const loadingFailed = (err) => {
+          console.log(err);
+          zip.failed = true;
+          updatePlayingState();
+        }
+        fetch(file.src).then((res) => res.arrayBuffer()).then((buf) => {
+          zip.loadAsync(buf)
+            .then((data) => {
+              zip.loading = false; 
+              updatePlayingState();
+            })
+            .catch(loadingFailed);
+        }).catch(loadingFailed);
+        file.zip = zip;
+        break;
       }
-      file.audio.prevFilePaused = file.audio.wasPaused !== undefined ? file.audio.wasPaused : file.audio.paused;
-      updatePlayingState();
-    });
-    file.audio.addEventListener("loadedmetadata", () => {
-      file.audio.loading = false;
-      updatePlayingState();
-    });
-    file.audio.addEventListener("error", (e) => {
-      file.audio.failed = true;
-      updatePlayingState();
-    });
-    file.audio.addEventListener("ended", () => {
-      // Autoplay next file.
-      const pausedBeforeEnd = file.audio._pausedBeforeEnd;
-      delete file.audio._pausedBeforeEnd;
-      // If the file ended while "playing", autoplay next, unless repeat turned on.
-      if (this.state.playing === file && pausedBeforeEnd === false) {
-        if (this.state.repeat) {
-          this.resetPlaying();
-          file.audio.play();
+      case FileType.AUDIO: {
+        file.audio = new Audio();
+        file.audio.loading = true;
+        if (file.subType === FileSubType.M4A) {
+          try {
+            const res = await fetch(file.src);
+            const m4aBlob = await res.blob();
+            const mp3Blob = await Api.convertAudio("m4a", "mp3", m4aBlob);
+            file.audio.src = URL.createObjectURL(mp3Blob);
+          } catch (e) {
+            // Conversion API probably not configured/running.
+            console.error(e);
+            file.audio.failed = true;
+          }
         } else {
-          if (this.canSkipForward()) this.skipTrack(1);
+          file.audio.src = file.src;
         }
-      } else {
-        // If the file ended while paused, it had to be scrubbed to the end (while paused).
-        // Even though scrubbing will set currentTime === duration, the "ended" event won't
-        // trigger until the user presses play.
-        // Don't loop for single files.
-        if (this.state.repeat) {
-          file.audio.currentTime = 0;
-          file.audio.play();
-        }
+        
+        file.audio.addEventListener("timeupdate", () => {
+          // Tracking for scrubbing/etc.
+          if (file.audio.currentTime === file.audio.duration) {
+            if (file.audio._pausedBeforeEnd === undefined) file.audio._pausedBeforeEnd = file.audio.prevFilePaused;
+            delete file.audio.prevFilePaused;
+          }
+          file.audio.prevFilePaused = file.audio.wasPaused !== undefined ? file.audio.wasPaused : file.audio.paused;
+          updatePlayingState();
+        });
+        file.audio.addEventListener("loadedmetadata", () => {
+          file.audio.loading = false;
+          updatePlayingState();
+        });
+        file.audio.addEventListener("error", (e) => {
+          if (file.audio.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+            // 
+          }
+          file.audio.failed = true;
+          updatePlayingState();
+        });
+        file.audio.addEventListener("ended", () => {
+          // Autoplay next file.
+          const pausedBeforeEnd = file.audio._pausedBeforeEnd;
+          delete file.audio._pausedBeforeEnd;
+          // If the file ended while "playing", autoplay next, unless repeat turned on.
+          if (this.state.playing === file && pausedBeforeEnd === false) {
+            if (this.state.repeat) {
+              this.resetPlaying();
+              file.audio.play();
+            } else {
+              if (this.canSkipForward()) this.skipTrack(1);
+            }
+          } else {
+            // If the file ended while paused, it had to be scrubbed to the end (while paused).
+            // Even though scrubbing will set currentTime === duration, the "ended" event won't
+            // trigger until the user presses play.
+            // Don't loop for single files.
+            if (this.state.repeat) {
+              file.audio.currentTime = 0;
+              file.audio.play();
+            }
+          }
+          updatePlayingState();
+        });
+        break;
       }
-      updatePlayingState();
-    });
+      default: {
+        break;
+      }
+    }
+    
   }
   reloadPlaying() {
-    this.prepareAudio(this.state.playing);
+    this.prepareFile(this.state.playing);
     this.setState({ playing : this.state.playing });
   }
   downloadPlaying() {
@@ -421,8 +539,12 @@ class Section extends QueryParamsPageComponent {
     }
   }
   unpausePlaying() {
-    if (this.state.playing.audio.currentTime === this.state.playing.audio.duration) this.resetPlaying(); 
-    this.state.playing.audio.play();
+    switch (this.state.playing.type) {
+      case FileType.AUDIO:
+        if (this.state.playing.audio.currentTime === this.state.playing.audio.duration) this.resetPlaying(); 
+        this.state.playing.audio.play();
+        break;
+    }
   }
   setFilePlaying(file) {
     const { playing } = this.state;
@@ -431,12 +553,17 @@ class Section extends QueryParamsPageComponent {
       // Otherwise, just unpause it.
       this.resetPlaying();
     }
-    file.audio.play();
+    if (file.type === FileType.AUDIO) file.audio.play();
     this.setState({ playing : file });
   }
   resetPlaying() {
-    this.state.playing.audio.pause();
-    this.state.playing.audio.currentTime = 0;
+    switch (this.state.playing.type) {
+      case FileType.AUDIO: {
+        this.state.playing.audio.pause();
+        this.state.playing.audio.currentTime = 0;
+        break;
+      }
+    }
   }
   paused() {
     return this.state.playing.audio.paused;
@@ -557,6 +684,7 @@ class Section extends QueryParamsPageComponent {
     const page = this.getPage();
     const { hidePinned } = this.state;
     // Loading
+    this.cleanupFiles();
     this.setState({ posts: null });
     const data = {
       postCount: POST_COUNT,
@@ -591,7 +719,7 @@ class Section extends QueryParamsPageComponent {
         for (let j=0; j<post.files.length; j++) {
           const file = post.files[j];
           file.src = await Api.getDownloadUrl(file);
-          this.prepareAudio(file);
+          this.prepareFile(file);
         }
       }
       posts.posts.forEach((post) => {
@@ -606,9 +734,11 @@ class Section extends QueryParamsPageComponent {
           });
         });*/
       });
-      if (this.state.playing && posts.posts.find((post) => post.files.some((file) => file.id === this.state.playing.id)) === undefined) {
-        this.setPlaying(null);
-      }
+      this.setPlaying(null);
+      /* To keep current file playing if it exists on the new posts still. */
+      // if (true || this.state.playing && posts.posts.find((post) => post.files.some((file) => file.id === this.state.playing.id)) === undefined) {
+      //   this.setPlaying(null);
+      // }
       this.setState({ posts });
     } catch (e) {
       if (e.name !== "AbortError") throw e;
@@ -637,6 +767,15 @@ class Section extends QueryParamsPageComponent {
       this.updatePosts();
     }
   }
+  cleanupFiles() {
+    this.state.posts && this.state.posts.posts.flatMap((post) => post.files).forEach((file) => {
+      if (file.audio) {
+        file.audio.pause();
+        // Browser will just ignore if src isn't an object URL.
+        URL.revokeObjectURL(file.audio.src);
+      }
+    });
+  }
   componentDidMount() {
     let hidePinned = JSON.parse(localStorage.getItem("hidePinned"));
     if (hidePinned === null) hidePinned = true;
@@ -647,7 +786,7 @@ class Section extends QueryParamsPageComponent {
     });
   }
   componentWillUnmount() {
-    // Abort fetch
+    this.cleanupFiles();
   }
   render() {
     const skeleton = this.skeleton();

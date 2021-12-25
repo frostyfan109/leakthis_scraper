@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.types import TypeDecorator, String, Unicode
 from datetime import datetime
+from commons import get_mimetype
 from drive import get_direct_url
 from url_parser import URLParser
 
@@ -99,6 +100,8 @@ class File(Base):
     url = Column(String, nullable=False)
     download_url = Column(String, nullable=False)
     file_name = Column(String, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    hosting_service = Column(String, nullable=False)
     drive_id = Column(String, nullable=False)
     drive_project_id = Column(String, nullable=False)
     cover = Column(LargeBinary)
@@ -107,6 +110,8 @@ class File(Base):
     exception = Column(String)
     traceback = Column(String)
     retries = Column(Integer, default=0)
+    first_scraped = Column(DateTime, default=datetime.now)
+    last_updated = Column(DateTime, default=datetime.now)
 
     def get_post(self):
         return persistent_session.query(Post).filter_by(id=self.post_id).first()
@@ -126,6 +131,7 @@ class File(Base):
             # "direct_url": get_direct_url(self.drive_id),
             # "cover": self.cover,
             "unknown": self.unknown,
+            "mime_type": get_mimetype(self.file_name),
 
             # "direct_url": get_direct_url(self.drive_id),
 

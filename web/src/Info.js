@@ -1,10 +1,10 @@
 import React, { Component } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 import { Table, Modal, Form, Card, ListGroup, Tabs, Tab } from 'react-bootstrap';
 import { FaChartBar } from 'react-icons/fa';
-import { linkToPost } from './common.js';
+import { linkToPost, getColorHueShift } from './common.js';
 import Loading from './Loading';
 import Api from './Api.js';
 import prettyBytes from 'pretty-bytes';
@@ -22,6 +22,7 @@ export default class Info extends Component {
       configTemp: null,
       scrapeGraphSort: "days",
       range: null,
+      activeGraphKey: null,
       loadingGraph: false
     };
     // this.rangeChanged = debounce(this.rangeChanged.bind(this), 300);
@@ -57,8 +58,9 @@ export default class Info extends Component {
     this.setState({ configTemp });
     this.debounceUpdateSubsequentPagesScraped(value);
   }
-  updateInfo() {
-    return this.props.updateInfo({ sort: this.state.scrapeGraphSort, range: this.state.range });
+  async updateInfo() {
+    const data = await this.props.updateInfo({ sort: this.state.scrapeGraphSort, range: this.state.range });
+    return data;
   }
   // setRange(e) {
     // this.setState({ range: e.target.value }, () => {
@@ -67,9 +69,10 @@ export default class Info extends Component {
     // });
   updateSort(e) {
     const scrapeGraphSort = e.target.value;
+    const activeGraph = this.getActiveGraph();
     this.setState({
       scrapeGraphSort,
-      range: this.props.info.data.scrape_data.data[scrapeGraphSort].range || this.props.info.data.scrape_data.data[scrapeGraphSort].default
+      range: activeGraph.data[0][scrapeGraphSort].range || activeGraph.data[0][scrapeGraphSort].default
     });
   }
   async updateConfig(options) {
@@ -86,10 +89,137 @@ export default class Info extends Component {
     });
     this.setState({ configLoading });
   }
-  updateDefaultRange() {
-    if (this.state.range === null && this.props.info !== null) {
+  getActiveGraph() {
+    if (this.props.info === null) return null;
+    return this.props.info.data.scrape_data.graphs[this.state.activeGraphKey];
+  }
+  renderGraphConfig() {
+    const activeGraph = this.getActiveGraph();
+    return (
+      <>
+      {/* <h5 className="h6">{activeGraph.title}</h5> */}
+      <div className="graph-controls d-flex float-right align-items-center">
+        {
+          this.state.range !== null && (
+            <div className="d-flex mr-2 flex-grow-1">
+            <Form.Control type="range"
+                          custom
+                          ref={(ref) => this._range = ref}
+                          onChange={this.rangeChanged}
+                          value={this.state.range}
+                          min={activeGraph.data[0][this.state.scrapeGraphSort].min}
+                          max={activeGraph.data[0][this.state.scrapeGraphSort].max}/>
+            <span className="ml-2">{this.state.range}</span>
+            </div>
+          )
+        }
+        {/*<Form.Control className="w-auto" type="number" size="sm"/>*/}
+        <Form.Control className="custom-select custom-select-sm w-auto ml-2"
+                      as="select"
+                      size="sm"
+                      value={this.state.scrapeGraphSort}
+                      onChange={this.updateSort}>
+          <option value="days">Days</option>
+          <option value="weeks">Weeks</option>
+          <option value="months">Months</option>
+        </Form.Control>
+      </div>
+      </>
+    );
+  }
+  renderActiveGraph() {
+    const activeGraph = this.getActiveGraph();
+    if (this.state.loadingGraph) return (
+      <div className="d-flex justify-content-center align-items-center flex-column flex-grow-1">
+        <svg xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" style={{background: "rgb(255, 255, 255)", display: "block", shapeRendering: "auto"}} width="100px" height="100px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
+        <g transform="rotate(180 50 50)"><rect x="15" y="15" width="10" height="40" fill="#abbd81">
+        <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.4s"></animate>
+        </rect><rect x="35" y="15" width="10" height="40" fill="#f8b26a">
+        <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.2s"></animate>
+        </rect><rect x="55" y="15" width="10" height="40" fill="#f47e60">
+        <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.6s"></animate>
+        </rect><rect x="75" y="15" width="10" height="40" fill="#e15b64">
+        <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-1s"></animate>
+        </rect></g></svg>
+        Loading
+      </div>
+    )
+    switch (activeGraph.type) {
+      case "line":
+        return (
+          <Line redraw data={{
+            labels: activeGraph.data.map((data) => data[this.state.scrapeGraphSort].labels)[0],
+            datasets: activeGraph.data.map((data, i) => ({
+              data: data[this.state.scrapeGraphSort].data,
+              label: data[this.state.scrapeGraphSort].label,
+              lineTension: 0,
+              fill: false,
+              backgroundColor: getColorHueShift(i),
+              borderColor: getColorHueShift(i),
+              borderWidth: 4,
+              // pointBackgroundColor: getColor(i)
+            }))
+          }} options={{
+            scales: {
+              yAxes: [{
+                scaleLabel: {
+                  display: true,
+                  labelString: activeGraph.data.map((data) => data[this.state.scrapeGraphSort])[0].y_label
+                },
+                ticks: {
+                  beginAtZero: false
+                }
+              }]
+            },
+            legend: {
+              display: activeGraph.data.length > 1
+            },
+            maintainAspectRatio: true
+          }} ref={this.canvasMounted}/>
+        );
+        case "bar":
+          return (
+            <Bar redraw data={{
+              labels: activeGraph.data.map((data) => data[this.state.scrapeGraphSort].labels)[0],
+              datasets: activeGraph.data.map((data, i) => ({
+                data: data[this.state.scrapeGraphSort].data,
+                label: data[this.state.scrapeGraphSort].label,
+                lineTension: 0,
+                fill: false,
+                backgroundColor: getColorHueShift(i),
+                borderColor: getColorHueShift(i),
+                borderWidth: 4,
+                // pointBackgroundColor: getColor(i)
+              }))
+            }} options={{
+              scales: {
+                yAxes: [{
+                  scaleLabel: {
+                    display: true,
+                    labelString: activeGraph.data.map((data) => data[this.state.scrapeGraphSort])[0].y_label
+                  },
+                  ticks: {
+                    beginAtZero: false
+                  }
+                }]
+              },
+              legend: {
+                display: activeGraph.data.length > 1
+              },
+              maintainAspectRatio: true
+            }} ref={this.canvasMounted}/>
+          );
+    }
+  }
+  updateDefaults() {
+    if (this.props.info !== null) {
+      const scrape_data = this.props.info.data.scrape_data;
+      const defaultGraphKey = scrape_data.default_graph;
+      const defaultGraph = scrape_data.graphs[defaultGraphKey];
+      if (this.state.activeGraphKey === null) this.setState({ activeGraphKey: defaultGraphKey });
+
       const scrapeGraphSort = this.state.scrapeGraphSort;
-      this.setState({ range: this.props.info.data.scrape_data.data[scrapeGraphSort].range || this.props.info.data.scrape_data.data[scrapeGraphSort].default });
+      if (this.state.range === null) this.setState({ range: defaultGraph.data[0][scrapeGraphSort].range || defaultGraph.data[0][scrapeGraphSort].default });
     }
   }
   canvasMounted(canvasRef) {
@@ -99,18 +229,19 @@ export default class Info extends Component {
     }
   }
   componentDidUpdate() {
-    this.updateDefaultRange();
+    this.updateDefaults();
     if (this.state.configTemp === null && this.props.info !== null) this.setState({ configTemp : this.props.info.config });
   }
   componentDidMount() {
-    this.updateDefaultRange();
+    this.updateDefaults();
   }
   render() {
     const loading = this.props.info === null || this.state.configTemp === null;
     const { data, status: {account_info, ...status} = {}, config, environment, meta } = this.props.info || {};
+    const activeGraph = this.getActiveGraph();
     // console.log(this.props);
     return (
-      <div className="py-4 px-4 w-100 h-100 d-flex flex-column">
+      <div className="py-4 px-4 w-100 d-flex flex-column">
         <Helmet>
           <title>Scraper Info</title>
         </Helmet>
@@ -127,80 +258,15 @@ export default class Info extends Component {
         <div className="d-flex flex-column flex-md-row align-items-md-start">
           <div style={{flex: 0, flexGrow: 2, height: "100%"}} className="d-flex flex-column">
             <div className="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center mb-2">
-              <h5 className="h6">Scraping Data</h5>
-
-              <div className="graph-controls d-flex float-right align-items-center">
-                {
-                  this.state.range !== null && (
-                    <div className="d-flex mr-2 flex-grow-1">
-                    <Form.Control type="range"
-                                  custom
-                                  ref={(ref) => this._range = ref}
-                                  onChange={this.rangeChanged}
-                                  value={this.state.range}
-                                  min={data.scrape_data.data[this.state.scrapeGraphSort].min}
-                                  max={data.scrape_data.data[this.state.scrapeGraphSort].max}/>
-                    <span className="ml-2">{this.state.range}</span>
-                    </div>
-                  )
-                }
-                {/*<Form.Control className="w-auto" type="number" size="sm"/>*/}
-                <Form.Control className="custom-select custom-select-sm w-auto ml-2"
-                              as="select"
-                              size="sm"
-                              value={this.state.scrapeGraphSort}
-                              onChange={this.updateSort}>
-                  <option value="days">Days</option>
-                  <option value="weeks">Weeks</option>
-                  <option value="months">Months</option>
-                </Form.Control>
-              </div>
+              <Tabs className="mb-2" activeKey={this.state.activeGraphKey} onSelect={(key) => this.setState({ activeGraphKey: key })}>
+              {
+                Object.keys(data.scrape_data.graphs).map((key) => (
+                  <Tab eventKey={key} key={key} title={data.scrape_data.graphs[key].title}>{this.renderGraphConfig()}</Tab>
+                ))
+              }
+              </Tabs>
             </div>
-            {
-              this.state.loadingGraph ? (
-                <div className="d-flex justify-content-center align-items-center flex-column flex-grow-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" style={{background: "rgb(255, 255, 255)", display: "block", shapeRendering: "auto"}} width="100px" height="100px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
-                  <g transform="rotate(180 50 50)"><rect x="15" y="15" width="10" height="40" fill="#abbd81">
-                  <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.4s"></animate>
-                  </rect><rect x="35" y="15" width="10" height="40" fill="#f8b26a">
-                  <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.2s"></animate>
-                  </rect><rect x="55" y="15" width="10" height="40" fill="#f47e60">
-                  <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-0.6s"></animate>
-                  </rect><rect x="75" y="15" width="10" height="40" fill="#e15b64">
-                  <animate attributeName="height" values="50;70;30;50" keyTimes="0;0.33;0.66;1" dur="1s" repeatCount="indefinite" calcMode="spline" keySplines="0.5 0 0.5 1;0.5 0 0.5 1;0.5 0 0.5 1" begin="-1s"></animate>
-                  </rect></g></svg>
-                  Loading
-                </div>
-              ) : (
-                <Line redraw data={{
-                  labels: data.scrape_data.data[this.state.scrapeGraphSort].labels,
-                  datasets: [{
-                    data: data.scrape_data.data[this.state.scrapeGraphSort].data,
-                    lineTension: 0,
-                    backgroundColor: "transparent",
-                    borderColor: "#007bff",
-                    borderWidth: 4,
-                    pointBackgroundColor: "#007bff"
-                  }]
-                }} options={{
-                  scales: {
-                    yAxes: [{
-                      scaleLabel: {
-                        display: true,
-                        labelString: "Posts"
-                      },
-                      ticks: {
-                        beginAtZero: false
-                      }
-                    }]
-                  },
-                  legend: {
-                    display: false
-                  },
-                  maintainAspectRatio: true
-                }} ref={this.canvasMounted}/>
-              )
-            }
+            {this.renderActiveGraph()}
           </div>
           <div className="d-flex flex-column">
             <Card className="info environment-table ml-md-3 mt-0 mt-3 mt-md-0" style={{flexGrow: 1, flexBasis: 0}}>

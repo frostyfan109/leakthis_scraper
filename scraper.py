@@ -174,28 +174,46 @@ class Scraper:
     def create_db_session(self):
         return disableable_session_factory(self.config["disable_db"])
 
+    """ Should only be used on a post with 0 existing files
+        (e.g., if a post was catalogued before the Scraper
+        was updated to support "unknown" files). """
+    def retry_post(self, post_id):
+        session = self.create_db_session()
+        post = session.query(Post).filter_by(id=post_id).first()
+        post_content = self.parse_post_content(post.url)
+        files = self.download_all_files(post_content["urls"])
+        for file_data in files:
+            session.add(self.create_file(post_id, file_data))
+        session.commit()
+        session.close()
+
+    def retry_file(self, file):
+        downloaded_files = self.download_files(file.url)
+        """ Only retry URLs for single files. The data gets messy for URLs that point to multiple files. """
+        """ Note that download_files should never return an empty list. It should either return files or a list of one unknown file. """
+        if len(downloaded_files) == 1:
+            downloaded_file = downloaded_files[0]
+            if downloaded_file.get("unknown"):
+                # Still unknown
+                file.retries += 1
+            else:
+                file.unknown = False
+                file.file_name = downloaded_file["file_name"]
+                file.download_url = downloaded_file["download_url"]
+                file.drive_id = downloaded_file["drive_id"]
+                file.drive_project_id = downloaded_file["drive_project_id"]
+                file.cover = downloaded_file["cover"]
+                file.file_size = downloaded_file["file_size"]
+                file.hosting_service = downloaded_file["hosting_service"]
+                logger.info(f"Successfully retrieved file with URL '{file.url}' for post '{file.get_post().title}'.")
+            file.last_updated = datetime.now()
+
     def retry_unknown_files(self):
         session = self.create_db_session()
         unknown_files = session.query(File).filter_by(unknown=True).filter(File.retries < self.config["max_retries"])
         logger.info(f"Retrying {unknown_files.count()} unknown files.")
         for file in unknown_files:
-            downloaded_files = self.download_files(file.url)
-            """ Only retry URLs for single files. The data gets messy for URLs that point to multiple files. """
-            """ Note that download_files should never return an empty list. It should either return files or a list of one unknown file. """
-            if len(downloaded_files) == 1:
-                downloaded_file = downloaded_files[0]
-                if downloaded_file.get("unknown"):
-                    # Still unknown
-                    file.retries += 1
-                else:
-                    file.unknown = False
-                    file.file_name = downloaded_file["file_name"]
-                    file.download_url = downloaded_file["download_url"]
-                    file.drive_id = downloaded_file["drive_id"]
-                    file.drive_project_id = downloaded_file["drive_project_id"]
-                    file.cover = downloaded_file["cover"]
-                    logger.info(f"Successfully retrieved file with URL '{file.url}' for post '{file.get_post().title}'.")
-
+            self.retry_file(file)
         session.commit()
         session.close()
 
@@ -215,11 +233,14 @@ class Scraper:
                 download_url = download["download_url"]
                 stream = download["stream"]
                 file_name = download["file_name"]
+                hosting_service = download["hosting_service"].name
                 (drive_project_id, drive_id) = upload_file(file_name, stream)
                 files.append({
                     "url": url,
                     "download_url": download_url,
                     "file_name": file_name,
+                    "file_size": len(stream),
+                    "hosting_service": hosting_service,
                     "drive_id": drive_id,
                     "drive_project_id": drive_project_id,
                     "cover": None
@@ -227,6 +248,41 @@ class Scraper:
                 })
         return files
 
+    def download_all_files(self, urls):
+        files = []
+        for url in urls:
+            files.append(*self.download_files(url))
+        return files
+
+    def create_file(self, post_id, file_data):
+        if file_data.get("unknown") == True:
+            file = File(
+                post_id=post_id,
+                file_name="",
+                url=file_data["url"],
+                download_url="",
+                file_size=0,
+                hosting_service="",
+                drive_id="",
+                drive_project_id="",
+                unknown=True,
+                exception=str(file_data["exception"]),
+                traceback=file_data["traceback"]
+            )
+        else:
+            file = File(
+                post_id=post_id,
+                file_name=file_data["file_name"],
+                url=file_data["url"],
+                download_url=file_data["download_url"],
+                flie_size=file_data["file_size"],
+                hosting_service=file_data["hosting_service"],
+                drive_id=file_data["drive_id"],
+                drive_project_id=file_data["drive_project_id"],
+                cover=file_data["cover"]
+            )
+        logger.info(f"Creating new file {str(file)}.")
+        return file
 
     def parse_post_content(self, post_url):
         res = self.session.get(post_url)
@@ -266,14 +322,11 @@ class Scraper:
         cleaned_html = str(clean_tag(message_content))
 
         # download_urls = [download_url for download_url in [URLParser().parse_download_url(url) for url in urls] if download_url != None]
-        files = []
-        for url in urls:
-            files.append(*self.download_files(url))
 
         return {
             "text": text,
             "cleaned_html": cleaned_html,
-            "files": files
+            "urls": urls
         }
 
     def parse_prefix(self, soup, prefix_tag):
@@ -385,6 +438,8 @@ class Scraper:
                 existing_post.pinned = post_data["is_pinned"]
                 # Posts can be moved to different sections.
                 existing_post.section_id = self.get_section_id(section)
+                # The post has been updated.
+                existing_post.last_updated = datetime.now() 
                 # Note: in the future, post_content could also be updated, e.g. useful if URLs have been updated.
                 session.commit()
             session.close()
@@ -392,6 +447,8 @@ class Scraper:
         
 
         post_content = self.parse_post_content(post_data["post_url"])
+
+        files = self.download_all_files(post_content["urls"])
 
         if self.config["print_posts_scraped"] == True:
             print(post_data["title"])
@@ -418,30 +475,8 @@ class Scraper:
 
         post_id = post.id
 
-        for file in post_content["files"]:
-            if file.get("unknown") == True:
-                file = File(
-                    post_id=post_id,
-                    file_name="",
-                    url=file["url"],
-                    download_url="",
-                    drive_id="",
-                    drive_project_id="",
-                    unknown=True,
-                    exception=str(file["exception"]),
-                    traceback=file["traceback"]
-                )
-            else:
-                file = File(
-                    post_id=post_id,
-                    file_name=file["file_name"],
-                    url=file["url"],
-                    download_url=file["download_url"],
-                    drive_id=file["drive_id"],
-                    drive_project_id=file["drive_project_id"],
-                    cover=file["cover"]
-                )
-            session.add(file)
+        for file_data in files:
+            session.add(self.create_file(post_id, file_data))
         logger.info(f"Parsed new post {str(post)}.")
         session.commit()
         if post_callback is not None: post_callback(post_id)
@@ -523,8 +558,14 @@ class Scraper:
         This method is expected to be called within the exception context
         (s.t. traceback works properly). """
     def log_critical(self, e):
-        with open(os.path.join(os.path.dirname(__file__), "critical_log.txt"), "a+") as f:
-            f.write(traceback.format_exc() + "\n")
+        try:
+            with open(os.path.join(os.path.dirname(__file__), "critical_log.txt"), "a+") as f:
+                f.write(traceback.format_exc() + "\n")
+        except:
+            # It seems that UnicodeEncodeErrors can be run into here, and perhaps others.
+            # Better to avoid than crash the scraper (since log_critical is often called in exception handlers
+            # so it could be called outside a try block).
+            pass
         self.update_status(last_error={"error": str(e), "traceback": traceback.format_exc(), "time": time.time()})
 
     def get_status_data(self):

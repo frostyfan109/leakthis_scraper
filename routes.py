@@ -4,6 +4,11 @@ import platform
 import sys
 import os
 import pkg_resources
+import ffmpeg
+import tempfile
+import time
+import math
+from subprocess import Popen, PIPE
 from math import ceil
 from importlib_metadata import distributions
 from dotenv import dotenv_values
@@ -13,11 +18,13 @@ from sqlalchemy import extract, func
 from flask import Response, request, send_file, stream_with_context
 from flask_restplus import Resource, inputs, abort
 from werkzeug import datastructures
-from mimetypes import guess_type
+from io import BytesIO
 from fuzzywuzzy.fuzz import partial_ratio
 from urllib.parse import urlencode
 from api import app, api, cache, Flask_Session
 from db import Post, File, Prefix
+from url_parser import Hosts
+from commons import get_mimetype
 from config import load_config, save_config
 from main import Scraper
 from exceptions import AuthenticationError
@@ -30,6 +37,7 @@ from drive import (
 from pydrive.files import ApiRequestError
 
 logger = logging.getLogger(__file__)
+logger.setLevel(logging.INFO)
 
 
 def cache_key():
@@ -80,10 +88,16 @@ class SectionEntries(Resource):
             if author is not None:
                 filtered = filtered.filter(Post.created_by == author)
             if query is not None:
+                files_filtered = [
+                    file.post_id for file in session.query(File).filter(
+                        File.file_name.contains(query)
+                    )
+                ]
                 filtered = filtered.filter(
                     Post.title.contains(query) |
                     Post.created_by.contains(query) |
-                    Post.body.contains(query)
+                    Post.body.contains(query) |
+                    Post.id.in_(files_filtered)
                 )
             # if hide_pinned:
                 # filtered = filtered.filter(Post.pinned == False)
@@ -150,7 +164,7 @@ class DriveFiles(Resource):
         args = drive_files_parser.parse_args()
         per_page = args["files"]
         query = args["query"]
-        logger.critical(f"Grabbing uncached resource with args: {drive_id} {page} {per_page} {query}")
+        logger.info(f"Grabbing uncached resource with args: {drive_id} {page} {per_page} {query}")
         """ In the future, to shorten response times, could return nextPageToken and use it to get the next page faster. """
         def match_file(file):
             # file_name = re.sub(r"\W+", " ", file["name"]).lower()
@@ -246,47 +260,80 @@ class Info(Resource):
         days = [(datetime.today() - relativedelta(days=num_days-1-n)) for n in range(num_days)]
         weeks = [(datetime.today() - relativedelta(weeks=num_weeks-1-n)) for n in range(num_weeks)]
         months = [(datetime.today() - relativedelta(months=num_months-1-n)) for n in range(num_months)]
-        scrapes_per_day = {
-            "labels": [day.strftime("%A") for day in days],
-            "data": [
-                session.query(Post).filter(
-                    extract('year', Post.first_scraped) == day.year,
-                    extract('month', Post.first_scraped) == day.month,
-                    extract('day', Post.first_scraped) == day.day
-                ).count() for day in days
-            ],
-            "min": 2,
-            "max": 14,
-            "default": 7,
-            "range": cur_range if sort == "days" else None
-        }
-        scrapes_per_week = {
-            "labels": [week.strftime("%B") + " " + str(week.day) for week in weeks],
-            "data": [
-                session.query(Post).filter(
-                    extract('year', Post.first_scraped) == week.year,
-                    extract('month', Post.first_scraped) == week.month,
-                    func.strftime("%W", Post.first_scraped) == week.strftime("%W")
-                ).count() for week in weeks
-            ],
-            "min": 2,
-            "max": 16,
-            "default": 8,
-            "range": cur_range if sort == "weeks" else None
-        }
-        scrapes_per_month = {
-            "labels": [month.strftime("%B") for month in months],
-            "data": [
-                session.query(Post).filter(
-                    extract('year', Post.first_scraped) == month.year,
-                    extract('month', Post.first_scraped) == month.month
-                ).count() for month in months
-            ],
-            "min": 2,
-            "max": 24,
-            "default": 12,
-            "range": cur_range if sort == "months" else None
-        }
+        def partition_query(query, time_column, options):
+            per_day = {
+                "labels": [day.strftime("%A") for day in days],
+                "data": [
+                    query.filter(
+                        extract('year', time_column) == day.year,
+                        extract('month', time_column) == day.month,
+                        extract('day', time_column) == day.day
+                    ).count() for day in days
+                ],
+                "min": 2,
+                "max": 14,
+                "default": 7,
+                "range": cur_range if sort == "days" else None,
+                "y_label": options.get("y_label"),
+                "label": options.get("label")
+            }
+            per_week = {
+                "labels": [week.strftime("%B") + " " + str(week.day) for week in weeks],
+                "data": [
+                    query.filter(
+                        extract('year', time_column) == week.year,
+                        extract('month', time_column) == week.month,
+                        func.strftime("%W", time_column) == week.strftime("%W")
+                    ).count() for week in weeks
+                ],
+                "min": 2,
+                "max": 16,
+                "default": 8,
+                "range": cur_range if sort == "weeks" else None,
+                "y_label": options.get("y_label"),
+                "label": options.get("label")
+            }
+            per_month = {
+                "labels": [month.strftime("%B") for month in months],
+                "data": [
+                    query.filter(
+                        extract('year', time_column) == month.year,
+                        extract('month', time_column) == month.month
+                    ).count() for month in months
+                ],
+                "min": 2,
+                "max": 24,
+                "default": 12,
+                "range": cur_range if sort == "months" else None,
+                "y_label": options.get("y_label"),
+                "label": options.get("label")
+            }
+            return [per_day, per_week, per_month]
+
+        [scrapes_per_day, scrapes_per_week, scrapes_per_month] = partition_query(
+            session.query(Post),
+            time_column=Post.first_scraped,
+            options={"y_label": "Posts"}
+        )
+        [files_per_day, files_per_week, files_per_month] = partition_query(
+            session.query(File).filter((File.unknown == False) | (File.unknown == None)),
+            time_column=File.first_scraped,
+            options={"y_label": "Files"}
+        )
+        host_distribution_data = [
+            {
+                "days": days,
+                "weeks": weeks,
+                "months": months
+            } for (days, weeks, months) in [
+                partition_query(
+                    session.query(File).filter(File.hosting_service == hosting_service.name),
+                    time_column=File.first_scraped,
+                    options={"y_label": "Hosts", "label": hosting_service.name}
+                )
+                for hosting_service in Hosts
+            ]
+        ]
 
         post_count = session.query(Post).count()
         known_file_count = session.query(File).filter((File.unknown == False) | (File.unknown == None)).count()
@@ -321,11 +368,37 @@ class Info(Resource):
         return {
             "data": {
                 "scrape_data": {
-                    "data": {
-                        "days": scrapes_per_day,
-                        "weeks": scrapes_per_week,
-                        "months": scrapes_per_month
+                    "graphs": {
+                        "posts_scraped": {
+                            "title": "Posts scraped",
+                            "type": "line",
+                            "data": [{
+                                "days": scrapes_per_day,
+                                "weeks": scrapes_per_week,
+                                "months": scrapes_per_month
+                            }]
+                        },
+                        "files_scraped": {
+                            "title": "Files scraped",
+                            "type": "line",
+                            "data": [{
+                                "days": files_per_day,
+                                "weeks": files_per_week,
+                                "months": files_per_month
+                            }]
+                        },
+                        "host_distribution_line": {
+                            "title": "Hosting services  (line)",
+                            "type": "line",
+                            "data": host_distribution_data
+                        },
+                        "host_distribution_bar": {
+                            "title": "Hosting services (bar)",
+                            "type": "bar",
+                            "data": host_distribution_data
+                        }
                     },
+                    "default_graph": "posts_scraped",
                     "post_count": post_count,
                     "known_file_count": known_file_count,
                     "total_file_count": total_file_count,
@@ -413,7 +486,7 @@ class DirectDownload(Resource):
         # Could also get Drive's inferred mimetype from file.FetchMetadata() and file["mimeType"],
         # but it's more accurate to just go off of the file name in the first place.
         file_name = file.file_name
-        mimetype = guess_type(file.file_name)[0]
+        mimetype = get_mimetype(file.file_name)
         session.close()
 
         def stream_file():

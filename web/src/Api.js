@@ -1,5 +1,5 @@
 import qs from 'qs';
-import { API_URL as BASE_URL, OMIT_UNKNOWN_FILES } from './config.js';
+import { API_URL as BASE_URL, CONVERSION_API_URL as CONVERSION_BASE_URL, OMIT_UNKNOWN_FILES } from './config.js';
 
 export class Api {
   async getSectionPosts(sectionName, page, query, fetchOptions={}) {
@@ -60,8 +60,17 @@ export class Api {
     });
     return await res.json();
   }
-  getDownloadUrl(file) {
+  async getDownloadUrl(file) {
     return `${BASE_URL}/download/${file.id}`;
+  }
+  async convertAudio(inFilename, outFilename, fileBlob) {
+    const formData = new FormData();
+    formData.append("file", fileBlob);
+    const res = await fetch(`${CONVERSION_BASE_URL}/convert_audio/${inFilename}/${outFilename}`, {
+      method: "POST",
+      body: formData
+    });
+    return await res.blob();
   }
   /*
   async getDownloadUrl(file) {
