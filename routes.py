@@ -5,6 +5,7 @@ import sys
 import os
 import pkg_resources
 import ffmpeg
+import portalocker
 import tempfile
 import time
 import math
@@ -46,8 +47,6 @@ def cache_key():
         (k, v) for k in sorted(args) for v in sorted(args.getlist(k))
     ])
     return key
-
-x = {}
 
 section_entries_parser = api.parser()
 section_entries_parser.add_argument("posts", type=int, help="Posts per page", location="args", default=20)
@@ -231,8 +230,8 @@ class Info(Resource):
         except FileNotFoundError:
             scraper_running = False
         try:
-            with open(os.path.join(os.path.dirname(__file__), "status.json"), "r") as f:
-                status_data = json.load(f)    
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "r") as fh:
+                status_data = json.load(fh)
         except FileNotFoundError:
             status_data = {}
 
@@ -309,6 +308,32 @@ class Info(Resource):
                 "label": options.get("label")
             }
             return [per_day, per_week, per_month]
+        def line_to_bar(data):
+            # data is a list of datasets in form {days, weeks, months}
+            # new_data is converted to bar form [label: str] -> count
+            new_data = {}
+            for dataset in data:
+                # Days, weeks, months
+                for (time_column, meta) in dataset.items():
+                    label = meta["label"]
+                    if not time_column in new_data:
+                        new_data[time_column] = {
+                            **meta,
+                            "data": {}
+                        }
+                    if label not in new_data[time_column]["data"]:
+                        new_data[time_column]["data"][label] = 0
+                    new_data[time_column]["data"][label] += sum(meta["data"])
+            for (time_column, data) in new_data.items():
+                data["labels"] = list(data["data"].keys())
+                data["data"] = list(data["data"].values())
+                data["label"] = data["labels"]
+            return [new_data]
+            # return {
+            #     **meta,
+            #     "labels": list(new_data.keys()),
+            #     "data": list(new_data.values())
+            # }
 
         [scrapes_per_day, scrapes_per_week, scrapes_per_month] = partition_query(
             session.query(Post),
@@ -395,7 +420,7 @@ class Info(Resource):
                         "host_distribution_bar": {
                             "title": "Hosting services (bar)",
                             "type": "bar",
-                            "data": host_distribution_data
+                            "data": line_to_bar(host_distribution_data)
                         }
                     },
                     "default_graph": "posts_scraped",

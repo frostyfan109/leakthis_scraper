@@ -6,6 +6,7 @@ import re
 import json
 import os
 import pickle
+import portalocker
 from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -110,7 +111,7 @@ class Scraper:
         int_log_level = logging.getLevelName(self.config["log_level"])
         if logger.getEffectiveLevel() != int_log_level:
             logger.info(f"Setting log level to '{self.config['log_level']}'")
-        logging.root.setLevel(int_log_level)
+        # logging.root.setLevel(int_log_level)
         logger.setLevel(int_log_level)
 
             
@@ -275,7 +276,7 @@ class Scraper:
                 file_name=file_data["file_name"],
                 url=file_data["url"],
                 download_url=file_data["download_url"],
-                flie_size=file_data["file_size"],
+                file_size=file_data["file_size"],
                 hosting_service=file_data["hosting_service"],
                 drive_id=file_data["drive_id"],
                 drive_project_id=file_data["drive_project_id"],
@@ -379,7 +380,7 @@ class Scraper:
         native_id = self.format_native_id(native_id)
         title_el = el.select_one(".structItem-title")
         title = title_el.find("a", class_="")
-        logger.info(f"Parsing post '{title.text}'")
+        logger.debug(f"Parsing post '{title.text}'")
 
         prefixes = title_el.find_all("a", class_="labelLink")
         for prefix in prefixes:
@@ -569,12 +570,18 @@ class Scraper:
         self.update_status(last_error={"error": str(e), "traceback": traceback.format_exc(), "time": time.time()})
 
     def get_status_data(self):
-        with open(os.path.join(os.path.dirname(__file__), "status.json"), "r") as f:
-            return json.load(f)
+        try:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "r") as fh:
+                return json.load(fh)
+        except:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as fh:
+                data = {}
+                fh.write(data)
+                return data
 
     def set_status_data(self, status_data):
-        with open(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as f:
-            json.dump(status_data, f)
+        with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as fh:
+            json.dump(status_data, fh)
 
     def update_status(self, **kwargs):
         status_data = self.get_status_data()

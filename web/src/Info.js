@@ -183,11 +183,11 @@ export default class Info extends Component {
               labels: activeGraph.data.map((data) => data[this.state.scrapeGraphSort].labels)[0],
               datasets: activeGraph.data.map((data, i) => ({
                 data: data[this.state.scrapeGraphSort].data,
-                label: data[this.state.scrapeGraphSort].label,
+                // label: data[this.state.scrapeGraphSort].label,
                 lineTension: 0,
                 fill: false,
-                backgroundColor: getColorHueShift(i),
-                borderColor: getColorHueShift(i),
+                backgroundColor: data[this.state.scrapeGraphSort].data.map((_, j) => getColorHueShift(j)),
+                borderColor: data[this.state.scrapeGraphSort].data.map((_, j) => getColorHueShift(j)),
                 borderWidth: 4,
                 // pointBackgroundColor: getColor(i)
               }))

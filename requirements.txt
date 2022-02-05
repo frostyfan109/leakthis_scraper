@@ -24,3 +24,4 @@ keyring
 fuzzywuzzy
 flask-caching==1.10.1
 ffmpeg-python==0.2.0
+portalocker

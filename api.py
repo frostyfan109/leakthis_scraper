@@ -74,5 +74,6 @@ if __name__ == "__main__":
     app.run(
         host=args.host,
         port=args.port,
-        use_reloader=args.reloader
+        use_reloader=args.reloader,
+        threaded=True
     )

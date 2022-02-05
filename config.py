@@ -1,5 +1,6 @@
 import os
 import yaml
+import portalocker
 from commons import get_env_var
 from exceptions import ConfigError, MissingEnvironmentError
 
@@ -12,8 +13,8 @@ def get_config_path():
 def load_config():
     config_path = get_config_path()
     try:
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f)
+        with portalocker.Lock(config_path, "r") as fh:
+            return yaml.safe_load(fh)
     except FileNotFoundError:
         raise ConfigError(f"Could not locate config file '${config_path}'.")
     except yaml.YAMLError:
@@ -21,8 +22,8 @@ def load_config():
 
 def save_config(conf):
     config_path = get_config_path()
-    with open(config_path, "w") as f:
-        yaml.dump(conf, f, default_flow_style=False)
+    with portalocker.Lock(config_path, "w") as fh:
+        yaml.dump(conf, fh, default_flow_style=False)
 
 
 def get_credentials_path():
