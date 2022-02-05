@@ -3,6 +3,7 @@ import traceback
 import os
 import json
 import glob
+import portalocker
 from pydrive.auth import GoogleAuth, ServiceAccountCredentials
 from pydrive.drive import GoogleDrive
 from httplib2 import Http
@@ -32,8 +33,8 @@ DRIVE_STORAGE_CUTOFF = float(DRIVE_STORAGE_CUTOFF)
 
 def load_storage_cache():
     try:
-        with open("drive_storage_cache.json", "r") as f:
-            cache = json.load(f)
+        with portalocker.Lock("drive_storage_cache.json", "r") as fh:
+            cache = json.load(fh)
     except FileNotFoundError:
         # If the file doesn't exist yet, create the cache and populate it.
         cache = update_storage_cache({})
@@ -53,8 +54,8 @@ def update_storage_cache(cache, project_id=None):
     return cache
 
 def save_storage_cache(cache):
-    with open("drive_storage_cache.json", "w+") as f:
-        json.dump(cache, f)
+    with portalocker.Lock("drive_storage_cache.json", "w+") as fh:
+        json.dump(cache, fh)
 
 def get_drive_credential_paths():
     value = get_env_var("DRIVE_CREDENTIALS_FILE")
@@ -194,3 +195,7 @@ Storage breakdown ({DRIVE_STORAGE_CUTOFF * 100}% cutoff):
 
 def get_all_files(project_id):
     return get_drive(project_id).ListFile().GetList()
+
+
+# Update the storage cache on application start to reflect changes to active drive accounts.
+update_storage_cache(load_storage_cache())
