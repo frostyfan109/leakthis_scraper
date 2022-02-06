@@ -65,6 +65,12 @@ class Scraper:
             "name": "Other Media Leaks",
             "description": "For other forms of media or higher quality leaks."
         },
+        "edits": {
+            "path": "/edits",
+            "id": 2,
+            "name": "Edits",
+            "description": ""
+        },
         "hip-hop-discussion": {
             "path": "/hiphopdiscussion",
             "id": 43,

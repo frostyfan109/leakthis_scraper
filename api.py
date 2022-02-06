@@ -4,7 +4,7 @@ from flask_restplus import Api
 # from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_caching import Cache
-from db import DB_URI, Base, flask_session_factory
+from db import flask_session_factory
 
 logger = logging.getLogger(__file__)
 

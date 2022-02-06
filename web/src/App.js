@@ -27,6 +27,7 @@ class App extends QueryParamsPageComponent {
     this.isActive = this.isActive.bind(this);
     this.brandClicked = this.brandClicked.bind(this);
     this.getInfo = this.getInfo.bind(this);
+    this._getUpdatePostsAborter = this._getUpdatePostsAborter.bind(this);
     
     this.updateSearchParam = debounce(this.updateSearchParam.bind(this), 250);
   }
@@ -120,6 +121,11 @@ class App extends QueryParamsPageComponent {
     const info = await Api.getInfo(options);
     this.setState({ info });
   }
+  _getUpdatePostsAborter() {
+    if (this._updatePostsController) this._updatePostsController.abort();
+    this._updatePostsController = new AbortController();
+    return this._updatePostsController;
+  }
   getQuery() {
     return qs.parse(this.props.location.search, {ignoreQueryPrefix: true});
   }
@@ -197,7 +203,7 @@ class App extends QueryParamsPageComponent {
               Object.entries(this.state.sections || {}).map(([sectionName, section]) => {
                 return (
                   <Route path={this.createSectionPath(section.path)} key={section.path}>
-                    <Section section={section} prefixes={this.state.prefixes} searchQuery={this.state.realSearchQuery}/>
+                    <Section section={section} prefixes={this.state.prefixes} searchQuery={this.state.realSearchQuery} getUpdatePostsAborter={this._getUpdatePostsAborter}/>
                   </Route>
                 );
               })

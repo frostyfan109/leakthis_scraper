@@ -1,6 +1,6 @@
 disable_db: false
 initial_pages_scraped: 5
-log_level: DEBUG
+log_level: INFO
 max_retries: 4
 print_posts_scraped: true
 subsequent_pages_scraped: 3

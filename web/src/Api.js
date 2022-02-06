@@ -63,12 +63,13 @@ export class Api {
   async getDownloadUrl(file) {
     return `${BASE_URL}/download/${file.id}`;
   }
-  async convertAudio(inFilename, outFilename, fileBlob) {
+  async convertAudio(inFilename, outFilename, fileBlob, fetchOptions) {
     const formData = new FormData();
     formData.append("file", fileBlob);
     const res = await fetch(`${CONVERSION_BASE_URL}/convert_audio/${inFilename}/${outFilename}`, {
       method: "POST",
-      body: formData
+      body: formData,
+      ...fetchOptions
     });
     return await res.blob();
   }

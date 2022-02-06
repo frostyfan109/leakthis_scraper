@@ -373,8 +373,6 @@ class Section extends QueryParamsPageComponent {
     ];
     // Used when query param is not specified.
     this.SORT_BY_DEFAULT = "latest"
-
-    this.updatePostsSignal = new AbortController();
   }
   skeleton() {
     return this.props.section === null;
@@ -410,67 +408,79 @@ class Section extends QueryParamsPageComponent {
         break;
       }
       case FileType.AUDIO: {
-        file.audio = new Audio();
-        file.audio.loading = true;
-        if (file.subType === FileSubType.M4A) {
-          try {
-            const res = await fetch(file.src);
-            const m4aBlob = await res.blob();
-            const mp3Blob = await Api.convertAudio("m4a", "mp3", m4aBlob);
-            file.audio.src = URL.createObjectURL(mp3Blob);
-          } catch (e) {
-            // Conversion API probably not configured/running.
-            console.error(e);
-            file.audio.failed = true;
-          }
-        } else {
-          file.audio.src = file.src;
-        }
-        
-        file.audio.addEventListener("timeupdate", () => {
-          // Tracking for scrubbing/etc.
-          if (file.audio.currentTime === file.audio.duration) {
-            if (file.audio._pausedBeforeEnd === undefined) file.audio._pausedBeforeEnd = file.audio.prevFilePaused;
-            delete file.audio.prevFilePaused;
-          }
-          file.audio.prevFilePaused = file.audio.wasPaused !== undefined ? file.audio.wasPaused : file.audio.paused;
-          updatePlayingState();
-        });
-        file.audio.addEventListener("loadedmetadata", () => {
-          file.audio.loading = false;
-          updatePlayingState();
-        });
-        file.audio.addEventListener("error", (e) => {
-          if (file.audio.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-            // 
-          }
-          file.audio.failed = true;
-          updatePlayingState();
-        });
-        file.audio.addEventListener("ended", () => {
-          // Autoplay next file.
-          const pausedBeforeEnd = file.audio._pausedBeforeEnd;
-          delete file.audio._pausedBeforeEnd;
-          // If the file ended while "playing", autoplay next, unless repeat turned on.
-          if (this.state.playing === file && pausedBeforeEnd === false) {
-            if (this.state.repeat) {
-              this.resetPlaying();
-              file.audio.play();
-            } else {
-              if (this.canSkipForward()) this.skipTrack(1);
+        try {
+          file.audio = new Audio();
+          file.audio.loading = true;
+          file.audio._abortSignals = {
+            downloadController: new AbortController(),
+            conversionController: new AbortController()
+          };
+          const res = await fetch(file.src, {
+            signal: file.audio._abortSignals.downloadController.signal
+          });
+          const audioBlob = await res.blob();
+          if (file.subType === FileSubType.M4A) {
+            try {
+              const mp3Blob = await Api.convertAudio("m4a", "mp3", audioBlob, {
+                signal: file.audio._abortSignals.conversionController.signal
+              });
+              file.audio.src = URL.createObjectURL(mp3Blob);
+            } catch (e) {
+              // Conversion API probably not configured/running.
+              console.error(e);
+              file.audio.failed = true;
             }
           } else {
-            // If the file ended while paused, it had to be scrubbed to the end (while paused).
-            // Even though scrubbing will set currentTime === duration, the "ended" event won't
-            // trigger until the user presses play.
-            // Don't loop for single files.
-            if (this.state.repeat) {
-              file.audio.currentTime = 0;
-              file.audio.play();
-            }
+            file.audio.src = URL.createObjectURL(audioBlob);
           }
-          updatePlayingState();
-        });
+          
+          file.audio.addEventListener("timeupdate", () => {
+            // Tracking for scrubbing/etc.
+            if (file.audio.currentTime === file.audio.duration) {
+              if (file.audio._pausedBeforeEnd === undefined) file.audio._pausedBeforeEnd = file.audio.prevFilePaused;
+              delete file.audio.prevFilePaused;
+            }
+            file.audio.prevFilePaused = file.audio.wasPaused !== undefined ? file.audio.wasPaused : file.audio.paused;
+            updatePlayingState();
+          });
+          file.audio.addEventListener("loadedmetadata", () => {
+            file.audio.loading = false;
+            updatePlayingState();
+          });
+          file.audio.addEventListener("error", (e) => {
+            if (file.audio.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+              // 
+            }
+            file.audio.failed = true;
+            updatePlayingState();
+          });
+          file.audio.addEventListener("ended", () => {
+            // Autoplay next file.
+            const pausedBeforeEnd = file.audio._pausedBeforeEnd;
+            delete file.audio._pausedBeforeEnd;
+            // If the file ended while "playing", autoplay next, unless repeat turned on.
+            if (this.state.playing === file && pausedBeforeEnd === false) {
+              if (this.state.repeat) {
+                this.resetPlaying();
+                file.audio.play();
+              } else {
+                if (this.canSkipForward()) this.skipTrack(1);
+              }
+            } else {
+              // If the file ended while paused, it had to be scrubbed to the end (while paused).
+              // Even though scrubbing will set currentTime === duration, the "ended" event won't
+              // trigger until the user presses play.
+              // Don't loop for single files.
+              if (this.state.repeat) {
+                file.audio.currentTime = 0;
+                file.audio.play();
+              }
+            }
+            updatePlayingState();
+          });
+        } catch (e) {
+          if (e.name !== "AbortError") throw e;
+        }
         break;
       }
       default: {
@@ -694,12 +704,11 @@ class Section extends QueryParamsPageComponent {
       author,
       query
     };
-    this.updatePostsSignal.abort()
-    this.updatePostsSignal = new AbortController();
-
+    
+    const controller = this.props.getUpdatePostsAborter();
     try {
       const posts = await Api.getSectionPosts(this.props.section.path_name, page, data, {
-        signal: this.updatePostsSignal.signal
+        signal: controller.signal
       });
       if (this.getPage() - 1 !== posts.page) {
         // The API returned a different page than requested.
@@ -747,7 +756,7 @@ class Section extends QueryParamsPageComponent {
   componentDidUpdate(prevProps) {
     const searchChanged = this.props.searchQuery !== prevProps.searchQuery;
     const sectionChanged = this.props.section !== prevProps.section;
-    const prefixesChanged = this.props.prefixes !== prevProps.prefixes;
+    const prefixesChanged = JSON.stringify(this.props.prefixes) !== JSON.stringify(prevProps.prefixes);
     // Location changed; check if query string is the same
     const newQuery = this.getQuery();
     const oldQuery = qs.parse(prevProps.location.search, {ignoreQueryPrefix: true});
@@ -771,6 +780,10 @@ class Section extends QueryParamsPageComponent {
     this.state.posts && this.state.posts.posts.flatMap((post) => post.files).forEach((file) => {
       if (file.audio) {
         file.audio.pause();
+        // Cancel fetch downloads to lighten server load.
+        Object.values(file.audio._abortSignals).forEach((controller) => {
+          controller.abort();
+        });
         // Browser will just ignore if src isn't an object URL.
         URL.revokeObjectURL(file.audio.src);
       }

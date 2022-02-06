@@ -7,9 +7,9 @@ venv/
 env/
 
 # Credentials
+service-keys
 credentials.json
 credentials.yaml
-drive_credentials*.json
 drive_storage_cache.json
 
 # Logging / debug
