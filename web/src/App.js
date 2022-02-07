@@ -9,7 +9,7 @@ import DriveInfo from './DriveInfo.js';
 import { QueryParamsPageComponent } from './QueryParams';
 import Api from './Api.js';
 import { socket } from './socket';
-import { POST_COUNT } from './config.js';
+import { POST_COUNT, STATIC_URL } from './config.js';
 import debounce from 'debounce-promise';
 import qs from 'qs';
 import './App.css';
@@ -155,7 +155,14 @@ class App extends QueryParamsPageComponent {
       <div className="App h-auto" style={{minHeight: "100%"}}>
         <Navbar bg="light" expand="lg" sticky="top">
           <Nav.Link className="p-0" onClick={this.brandClicked}>
-            <Navbar.Brand>{process.env.REACT_APP_WEBSITE_NAME}</Navbar.Brand>
+            <Navbar.Brand>
+              <img
+                src={STATIC_URL + "/logo.png"}
+                className="d-inline h-auto"
+                width="100px"
+              />
+              {/* {process.env.REACT_APP_WEBSITE_NAME} */}
+              </Navbar.Brand>
           </Nav.Link>
           <Navbar.Toggle aria-controls="basic-navbar-nav"/>
           <Navbar.Collapse>

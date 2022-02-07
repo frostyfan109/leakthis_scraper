@@ -12,6 +12,8 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from tinycss2 import parse_stylesheet, parse_declaration_list
 from urllib.parse import urlparse, parse_qsl
+from PIL import Image
+from io import BytesIO
 from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError
 from db import session_factory, Post, File, Prefix
 from drive import upload_file, get_direct_url, get_drive_breakdown
@@ -33,6 +35,8 @@ DEFAULT_CONFIG = {
     "initial_pages_scraped": 2,
     "subsequent_pages_scraped": 1
 }
+
+static_dir = get_env_var("STATIC_DIRECTORY")
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__file__)
@@ -526,11 +530,59 @@ class Scraper:
             assert_is_ok(res)
             posts += self.parse_posts(res.content, section, callback)
         return posts
+    
+    def resolve_static_asset_urls(self):
+        """ Resolve static URLs for assets to download. """
+        res = requests.get(self.base_url)
+        assert_is_ok(res)
+        soup = BeautifulSoup(res.content, "html.parser")
+        logo_url = soup.select_one(".uix_logo > img")["src"]
+        favicon_url = soup.select_one("head link[rel='icon']")["href"]
+
+        return {
+            "logo_url": logo_url,
+            "favicon_url": favicon_url
+        }
+
+    def scrape_static_assets(self):
+        logger.info("Scraping static assets.")
+        session = self.create_db_session()
+
+        # Make sure the static directory exists.
+        try:
+            os.mkdir(static_dir)
+        except FileExistsError:
+            pass
+
+        urls = self.resolve_static_asset_urls()
+        
+        """ Download static assets. """
+        # Download logo
+        res = requests.get(self.base_url + urls["logo_url"])
+        assert_is_ok(res)
+        # Ensure that the logo is saved as a PNG, regardless of the original format.
+        logo_img = Image.open(BytesIO(res.content))
+        logo_img.save(os.path.join(static_dir, "logo.png")) 
+        
+        # Download favicon
+        # The favicon url isn't relative.
+        res = requests.get(urls["favicon_url"])
+        assert_is_ok(res)
+        favicon_img = Image.open(BytesIO(res.content))
+        favicon_img.save(os.path.join(static_dir, "favicon.ico"))
+
+        session.close()
+        return {
+            "logo_img": logo_img,
+            "favicon_img": favicon_img
+        }
+        
 
     def scrape(self, sections, callback):
         # Scrape `pages` pages initially. Then only check the first page afterwards.
         if len(sections) == 0:
             raise Exception("Scraping sections cannot be empty.")
+        self.scrape_static_assets()
         logger.info(f"Beginning scraping on sections: {', '.join(sections)}.")
         pages = self.config["initial_pages_scraped"]
         while True:
