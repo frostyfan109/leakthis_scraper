@@ -73,12 +73,12 @@ div.filter-container {
   box-shadow: 0 1px 2.5px 0 rgb(0 0 0 / 10%)
 }
 
-.Post.skeleton .post-header, .Post.skeleton .post-footer, .Post.skeleton .post-avatar,
+.Post.skeleton .post-header, .Post.skeleton .post-footer > *, .Post.skeleton .post-avatar,
 .section.skeleton > .section-header > div > *, .section.skeleton > .section-search > div > * {
   background-color: rgb(227,227,227);
 }
 .Post.skeleton .post-footer > * {
-  visibility: hidden;
+  /* visibility: hidden; */
 }
 
 .modal-title {

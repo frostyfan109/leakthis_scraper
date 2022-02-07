@@ -83,17 +83,23 @@ class ConvertAudio(Resource):
 if __name__ == "__main__":
     import argparse
     from dotenv import load_dotenv
+    from urllib.parse import urlsplit
+    from commons import get_env_var
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="Specify API arguments")
-    parser.add_argument("--host", action="store", default="0.0.0.0")
-    parser.add_argument("--port", action="store", default=8002, type=int)
+    # parser.add_argument("--host", action="store", default="0.0.0.0")
+    # parser.add_argument("--port", action="store", default=8002, type=int)
     parser.add_argument("-r", "--reloader", help="Automatically restart API upon modification", action="store_true", default=True)
     args = parser.parse_args()
 
+    api_url = urlsplit(get_env_var("CONVERSION_API_URL"))
+    host = api_url.hostname
+    port = api_url.port
+
     app.run(
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         use_reloader=args.reloader,
         threaded=True
     )

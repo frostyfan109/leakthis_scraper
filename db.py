@@ -154,12 +154,18 @@ class Prefix(Base):
     bg_color = Column(String, nullable=False)
 
     def serialize(self):
+        # White is invisible against the site's white background, but black will also contrast
+        # with any foreground color white does (other than black itself).
+        bg_color = self.bg_color
+        # Obviously an imperfect check, but it can be updated at a later point if it doesn't catch everything.
+        if bg_color == "white" or bg_color == "rgb(255, 255, 255)" or bg_color == "#fff" or bg_color == "#ffffff":
+            bg_color = "black"
         return {
             "id": self.id,
             "prefix_id": self.prefix_id,
             "name": self.name,
             "text_color": self.text_color,
-            "bg_color": self.bg_color
+            "bg_color": bg_color
         }
 
     def __repr__(self):

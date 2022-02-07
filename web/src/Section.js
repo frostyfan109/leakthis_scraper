@@ -6,6 +6,7 @@ import { IoPlaySkipForwardSharp, IoPlaySkipBackSharp, IoAlertSharp, IoRepeatShar
 import { IoIosPlay as FaPlay, IoIosPause as FaPause } from 'react-icons/io';
 import { Link, withRouter, generatePath } from 'react-router-dom';
 import { Card, Badge, Form, Button } from 'react-bootstrap';
+import { toast } from 'react-toastify';
 import Pagination from 'react-js-pagination';
 import Draggable from './Draggable';
 import { POST_COUNT } from './config.js';
@@ -20,6 +21,7 @@ import Skeleton from 'react-loading-skeleton';
 import moment from 'moment';
 import pluralize from 'pluralize';
 import classNames from 'classnames';
+import { socket } from './socket';
 
 class Post extends QueryParamsPageComponent {
   constructor(props) {
@@ -234,17 +236,33 @@ class Post extends QueryParamsPageComponent {
                     </React.Fragment>
                   ))
                 }
-                <a href="javascript:void(0);" className="text-body d-inline">{post.title}</a>
+                {
+                  skeleton
+                    ? <div className="d-inline-block w-100"></div>
+                    : <a href="javascript:void(0);" className="text-body d-inline">{post.title}</a>
+                }
               </h6>
               {/*<p className="text-secondary">
                 {post.body}
               </p>*/}
-              <p className="text-muted mb-0 post-footer">
-                <a href="javascript:void(0);" className="text-muted" onClick={() => this.props.updateAuthor(post.created_by)}>{post.created_by}</a>
-                <span className="text-secondary">
-                  &nbsp;&bull;&nbsp;{moment(post.created*1000).fromNow()}
-                  &nbsp;&bull;&nbsp;{pluralize("file", post.files.length, true)}
-                </span>
+              <p className={classNames("text-muted mb-0 post-footer", skeleton && "mt-1")}>
+                {
+                  skeleton ? (
+                    <>
+                    <span>{"\u00a0".repeat(20)}</span>
+                    <span>{"\u00a0".repeat(25)}</span>
+                    <span>{"\u00a0".repeat(15)}</span>
+                    </>
+                  ) : (
+                    <>
+                    <a href="javascript:void(0);" className="text-muted" onClick={() => this.props.updateAuthor(post.created_by)}>{post.created_by}</a>
+                    <span className="text-secondary">
+                      &nbsp;&bull;&nbsp;{moment(post.created*1000).fromNow()}
+                      &nbsp;&bull;&nbsp;{pluralize("file", post.files.length, true)}
+                    </span>
+                    </>
+                  )
+                }
               </p>
             </div>
             <div className={classNames("text-muted small text-center align-self-center d-flex flex-column flex-md-row align-items-end", skeleton && "hidden")}>
@@ -379,6 +397,13 @@ class Section extends QueryParamsPageComponent {
   }
   toggleRepeat() {
     this.setState({ repeat: !this.state.repeat });
+  }
+  async preparePost(post) {
+    for (let j=0; j<post.files.length; j++) {
+      const file = post.files[j];
+      file.src = await Api.getDownloadUrl(file);
+      this.prepareFile(file);
+    }
   }
   async prepareFile(file) {
     [file.type, file.subType] = getFileType(file.mime_type);
@@ -682,9 +707,7 @@ class Section extends QueryParamsPageComponent {
       )
     );
   }
-  async updatePosts() {
-    if (this.skeleton()) return;
-    console.log("Updating posts");
+  _sectionPostsFetchData() {
     const queryParams = qs.parse(this.props.location.search, {ignoreQueryPrefix: true});
     const sort = queryParams.sort;
     const prefix = queryParams.prefix;
@@ -693,9 +716,6 @@ class Section extends QueryParamsPageComponent {
     // Page parameter is optional. If it is omitted, it is page 0.
     const page = this.getPage();
     const { hidePinned } = this.state;
-    // Loading
-    this.cleanupFiles();
-    this.setState({ posts: null });
     const data = {
       postCount: POST_COUNT,
       sortBy: sort,
@@ -704,10 +724,22 @@ class Section extends QueryParamsPageComponent {
       author,
       query
     };
+    return { page, data };
+  }
+  async updatePosts() {
+    if (this.skeleton()) return;
+    console.log("Updating posts");
+    const { page, data } = this._sectionPostsFetchData();
+    // Loading
+    const oldPosts = this.state.posts;
+    oldPosts && oldPosts.posts.forEach((post) => {
+      this.cleanupFiles(post);
+    })
+    this.setState({ posts: null });
     
     const controller = this.props.getUpdatePostsAborter();
     try {
-      const posts = await Api.getSectionPosts(this.props.section.path_name, page, data, {
+      let posts = await Api.getSectionPosts(this.props.section.path_name, page, data, {
         signal: controller.signal
       });
       if (this.getPage() - 1 !== posts.page) {
@@ -718,37 +750,10 @@ class Section extends QueryParamsPageComponent {
       }
       for (let i=0; i<posts.posts.length; i++) {
         const post = posts.posts[i];
-
-        post.prefixes.forEach((prefix) => {
-          // White is invisible against the white background, but black will also contrast
-          // with any color white does (other than black, which no prefixes use).
-          if (prefix.bg_color === "white") prefix.bg_color = "black";
-        });
-        
-        for (let j=0; j<post.files.length; j++) {
-          const file = post.files[j];
-          file.src = await Api.getDownloadUrl(file);
-          this.prepareFile(file);
-        }
+        await this.preparePost(post);
       }
-      posts.posts.forEach((post) => {
-        // Object.defineProperty(post, "downloading", {
-        //   get: function() {
-        //     return this.files.length > 0 && !this.files.every((file) => file.hasOwnProperty("bufferedDownload"));
-        //   }
-        // });
-        /*post.files.forEach((file) => {
-          Api.download(file).then((buffer) => {
-            file.bufferedDownload = buffer;
-          });
-        });*/
-      });
       this.setPlaying(null);
-      /* To keep current file playing if it exists on the new posts still. */
-      // if (true || this.state.playing && posts.posts.find((post) => post.files.some((file) => file.id === this.state.playing.id)) === undefined) {
-      //   this.setPlaying(null);
-      // }
-      this.setState({ posts });
+      this.setState({ posts })
     } catch (e) {
       if (e.name !== "AbortError") throw e;
     }
@@ -776,8 +781,8 @@ class Section extends QueryParamsPageComponent {
       this.updatePosts();
     }
   }
-  cleanupFiles() {
-    this.state.posts && this.state.posts.posts.flatMap((post) => post.files).forEach((file) => {
+  cleanupFiles(post) {
+    post.files.forEach((file) => {
       if (file.audio) {
         file.audio.pause();
         // Cancel fetch downloads to lighten server load.
@@ -797,9 +802,48 @@ class Section extends QueryParamsPageComponent {
         this.updatePosts();
       }
     });
+    socket.on("post_created", async (post) => {
+      // Only bother if the post was created in the last 5 minutes. Don't want to flood
+      // the UI with notifications when the scraper starts up after a bit and archives
+      // a bunch of posts at once
+      const minutesAgoCreated = (Date.now() - post.created * 1000) / (1000 * 60);
+      if (minutesAgoCreated > 5) {
+        console.log(`Skipping post_created for ${post.id} (created ${Math.floor(minutesAgoCreated)} minutes ago).`);
+      }
+      // Only update if the new post is in this section.
+      if (this.props.section?.id === post.section_id) {
+        // Don't want to refresh the entire page of posts when a new post is made for the following reasons:
+        // - The logic gets even more unnecessarily overcomplicated
+        // - If the user is listening to the last post on the page, and a new post is made, the last post will disappear
+        //   (it gets bumped to the next page). This is definitely not desirable.
+        // Instead, just add the post to the start of the page (which could theoretically overflow if left open indefinitely)
+        // but is a much better solution that the former.
+        const { page, data } = this._sectionPostsFetchData();
+        // Don't both with an abort controller, since it is a niche request with very minimal server load.
+        const posts = await Api.getSectionPosts(this.props.section.path_name, page, data);
+        if (posts.posts.find((pagePost) => pagePost.id === post.id)) {
+          await this.preparePost(post);
+          if (this.state.posts === null) return;
+          this.state.posts.posts = [post, ...this.state.posts.posts];
+          this.setState({ posts : this.state.posts });
+        }
+        toast(<>
+          <h6>New post in {this.props.section.name}</h6>
+          <hr className="mt-1 mb-2"/>
+          {post.prefixes.map((prefix) => (
+            <Badge className="mr-1" style={{color: prefix.text_color, backgroundColor: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>
+              {prefix.name}
+            </Badge>
+          ))}
+          <span style={{color: "black"}}>{post.title}</span>
+          <br/>
+          <small className="text-muted">{post.created_by} &bull; {pluralize("file", post.files.length, true)}</small>
+        </>);
+      }
+    });
   }
   componentWillUnmount() {
-    this.cleanupFiles();
+    this.state.posts && this.state.posts.posts.forEach((post) => this.cleanupFiles(post));
   }
   render() {
     const skeleton = this.skeleton();

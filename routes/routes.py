@@ -225,12 +225,12 @@ class Info(Resource):
 
         scraper_running = True
         try:
-            with open(os.path.join(os.path.dirname(__file__), "pidfile"), "r") as f:
+            with open(os.path.join(os.path.dirname(__file__), "../", "pidfile"), "r") as f:
                 pid = f.read()
         except FileNotFoundError:
             scraper_running = False
         try:
-            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "r") as fh:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "../", "status.json"), "r") as fh:
                 status_data = json.load(fh)
         except FileNotFoundError:
             status_data = {}
@@ -386,7 +386,7 @@ class Info(Resource):
 
         session.close()
 
-        with open(os.path.join(os.path.dirname(__file__), "requirements.txt"), "r") as req_txt:
+        with open(os.path.join(os.path.dirname(__file__), "../", "requirements.txt"), "r") as req_txt:
             required_dependencies = [{"name": req.name, "version": str(req.specifier)} for req in pkg_resources.parse_requirements(req_txt)]
         installed_dependencies = [{"name": dist.metadata["name"], "version": dist.version} for dist in list(distributions())]
 
@@ -560,6 +560,7 @@ class Config(Resource):
         log_level = form.get("log_level")
         timeout_interval = form.get("timeout_interval")
         update_posts = form.get("update_posts")
+        subsequent_pages_scraped = form.get("subsequent_pages_scraped")
 
         config = load_config()
 
@@ -577,54 +578,11 @@ class Config(Resource):
         if update_posts is not None:
             config["update_posts"] = update_posts
 
+        if subsequent_pages_scraped is not None:
+            config["subsequent_pages_scraped"] = subsequent_pages_scraped
+
         save_config(config)
 
         return config
         # print_posts_scraped = form.get("print_posts_scraped")
         # log_level = form.get("log_level")
-
-"""
-# On launch, load every drive file into memory. Then, communicate with scraper to keep it updated.
-mc = memcache.Client(["127.0.0.1:11211"])
-def create_drive_cache():
-    return {
-        project_id: get_all_files(project_id) for project_id in get_drive_project_ids()
-    }
-def set_drive_cache(cache):
-    mc.set("drive_cache", cache)
-def get_drive_cache():
-    return mc.get("drive_cache")
-
-set_drive_cache(create_drive_cache())
-
-drive_write_parser = api.parser()
-drive_write_parser.add_argument("file", type=datastructures.FileStorage, location="files")
-@api.route("/drive_write/<string:file_name>")
-class DriveWrite(Resource):
-    @api.expect(drive_write_parser)
-    def post(self, file_name):
-        args = drive_write_parser.parse_args()
-        file = args["file"]
-        (drive_project_id, drive_id) = upload_file(file_name, file.read())
-
-        drive_cache = get_drive_cache()
-        drive_cache[drive_project_id].insert(0, get_file(drive_project_id, drive_id))
-        set_drive_cache(drive_cache)
-
-        return [drive_project_id, drive_id]
-
-
-@api.route("/drive/list")
-class DriveRead(Resource):
-    def get(self):
-        return {
-            key: [file["title"] for file in value]
-            for key, value in get_drive_cache()
-        }
-
-@api.route("/drive/refresh")
-class DriveCacheRefresh(Resource):
-    def get(self):
-        set_drive_cache(create_drive_cache())
-
-"""

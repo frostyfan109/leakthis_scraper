@@ -10,7 +10,9 @@ httplib2==0.15.0
 importlib_metadata==3.10.1
 beautifulsoup4==4.10.0
 Flask==2.0.2
-flask_cors==3.0.10
+flask-cors==3.0.10
+flask-socketio
+flask-httpauth
 google_api_python_client==2.33.0
 jsonpickle==2.0.0
 pidfile==0.1.1

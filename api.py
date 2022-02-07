@@ -4,6 +4,7 @@ from flask_restplus import Api
 # from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_caching import Cache
+from flask_socketio import SocketIO
 from db import flask_session_factory
 
 logger = logging.getLogger(__file__)
@@ -15,6 +16,7 @@ app.config.from_mapping({
     "CACHE_DEFAULT_TIMEOUT": 300
 })
 CORS(app)
+socket = SocketIO(app, cors_allowed_origins="*", path="/ws", async_mode="threading")
 api = Api(app)
 cache = Cache(app)
 
@@ -54,6 +56,7 @@ def db_resource(func):
         return r
     return inner
 
+
 @app.teardown_request
 def cleanup(res_or_exc):
     Flask_Session.remove()
@@ -62,18 +65,25 @@ def cleanup(res_or_exc):
 if __name__ == "__main__":
     import argparse
     from dotenv import load_dotenv
+    from urllib.parse import urlsplit
+    from commons import get_env_var
     load_dotenv()
     
-    from routes import app
+    from routes import *
     parser = argparse.ArgumentParser(description="Specify API arguments")
-    parser.add_argument("--host", action="store", default="0.0.0.0")
-    parser.add_argument("--port", action="store", default=8001, type=int)
+    # parser.add_argument("--host", action="store", default="0.0.0.0")
+    # parser.add_argument("--port", action="store", default=8001, type=int)
     parser.add_argument("-r", "--reloader", help="Automatically restart API upon modification", action="store_true", default=True)
     args = parser.parse_args()
 
+    api_url = urlsplit(get_env_var("API_URL"))
+    # host = f"{api_url.scheme}://{api_url.hostname}"
+    host = api_url.hostname
+    port = api_url.port
+
     app.run(
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         use_reloader=args.reloader,
         threaded=True
     )

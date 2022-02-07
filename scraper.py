@@ -17,7 +17,8 @@ from db import session_factory, Post, File, Prefix
 from drive import upload_file, get_direct_url, get_drive_breakdown
 from config import load_config, load_credentials
 from url_parser import URLParser
-from commons import assert_is_ok, unabbr_number, get_cover
+from event_api_adapter import EventAPIAdapter
+from commons import assert_is_ok, unabbr_number, get_cover, get_env_var
 
 load_dotenv()
 
@@ -86,6 +87,7 @@ class Scraper:
         self.config = DEFAULT_CONFIG
         self.update_config()
         self.login(credentials)
+        self.event_api_adapter = EventAPIAdapter(authorization=get_env_var("INTERNAL_API_KEY"))
         # self.config = DEFAULT_CONFIG
         # self.configure_config(config)
 
@@ -488,6 +490,8 @@ class Scraper:
         session.commit()
         if post_callback is not None: post_callback(post_id)
         session.close()
+
+        self.event_api_adapter.post_created(post_id)
 
         return post_id
 

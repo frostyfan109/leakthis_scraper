@@ -1,16 +1,19 @@
 import React, { Component } from 'react';
 import { Navbar, Nav, Form, Button } from 'react-bootstrap';
 import { LinkContainer } from 'react-router-bootstrap';
+import { ToastContainer } from 'react-toastify';
 import { Switch, Route, Link, Redirect, withRouter, generatePath, matchPath } from 'react-router-dom';
 import Section from './Section.js';
 import Info from './Info.js';
 import DriveInfo from './DriveInfo.js';
 import { QueryParamsPageComponent } from './QueryParams';
 import Api from './Api.js';
+import { socket } from './socket';
 import { POST_COUNT } from './config.js';
 import debounce from 'debounce-promise';
 import qs from 'qs';
 import './App.css';
+import 'react-toastify/dist/ReactToastify.css';
 
 class App extends QueryParamsPageComponent {
   constructor(props) {
@@ -187,6 +190,15 @@ class App extends QueryParamsPageComponent {
           </Navbar.Collapse>
         </Navbar>
         <div className="main-content flex-grow-1">
+          <ToastContainer
+            position="top-right"
+            autoclose={2500}
+            hideProgressBar={false}
+            newestOnTop={false}
+            draggable={false}
+            closeOnClick
+            pauseOnFocusLoss
+            pauseOnHover/>
           <Switch ref={(el) => {window.el = el;}}>
             {(this.state.sections === null || this.state.prefixes === null) && (
               <Route path="*">
