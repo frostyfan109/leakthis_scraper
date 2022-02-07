@@ -207,7 +207,7 @@ class Post extends QueryParamsPageComponent {
                  width="50"
                  height="50"/>
             */}
-            {post.files.length !== 0 && <div className={
+            {(post.files.length !== 0 || skeleton) && <div className={
                    classNames(
                      "d-flex justify-content-center align-items-center rounded-circle outer-player-container",
                      playing && "play",
@@ -521,7 +521,10 @@ class Section extends QueryParamsPageComponent {
             updatePlayingState();
           });
         } catch (e) {
-          if (e.name !== "AbortError") throw e;
+          if (e.name !== "AbortError") {
+            file.audio.failed = true;
+            throw e;
+          }
         }
         break;
       }
