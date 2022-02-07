@@ -132,6 +132,23 @@ class Post extends QueryParamsPageComponent {
     if (duration.asMinutes() < 1) return `0:${formatted}`;
     return formatted;
   }
+  componentDidMount() {
+    if (!this.props.skeleton) {
+      // Make sure that the component rerenders periodically to update the time text.
+      const secondsAgoCreated = (Date.now() - this.props.post.created * 1000) / 1000;
+      // E.g. 45 seconds ago -> want to update it 16 seconds from now at every minute.
+      const secondsFromMinute = 60 - (secondsAgoCreated % 60);
+      setTimeout(() => {
+        this._rerenderTimer = setInterval(() => {
+          this.forceUpdate();
+        }, 60000);
+        this.forceUpdate();
+      }, (secondsFromMinute + 1)*1000);
+    }
+  }
+  componentWillUnmount() {
+    clearInterval(this._rerenderTimer);
+  }
   render() {
     let { post, skeleton, setPlaying, setPaused, unpausePlaying, playing: playingObj } = this.props;
     if (skeleton) {
