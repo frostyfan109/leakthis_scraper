@@ -17,9 +17,10 @@ geckodriver.log
 critical_log.txt
 non_implemented_urls.txt
 
-# App state
+# Auto-generated
 pidfile
 status.json
+static
 
 # DB
 *.db

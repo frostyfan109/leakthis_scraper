@@ -638,7 +638,7 @@ class Scraper:
         except:
             with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as fh:
                 data = {}
-                fh.write(data)
+                fh.write(json.dumps(data))
                 return data
 
     def set_status_data(self, status_data):

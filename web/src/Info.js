@@ -347,7 +347,7 @@ export default class Info extends Component {
                   </tr>
                   <tr>
                     <td>Last scraped</td>
-                    <td>{moment(status.last_scraped * 1000).fromNow()}</td>
+                    <td>{status.last_scraped ? moment(status.last_scraped * 1000).fromNow() : null}</td>
                   </tr>
                   <tr>
                     <td>Last error</td>
@@ -512,7 +512,7 @@ export default class Info extends Component {
             <Modal.Title id="errorModalTitle">Traceback</Modal.Title>
           </Modal.Header>
           <Modal.Body className="">
-            <pre>{status.last_error.traceback}</pre>
+            <pre>{status.last_error?.traceback}</pre>
           </Modal.Body>
         </Modal>
         <Modal centered scrollable show={this.state.dependencyModal} onHide={() => this.setState({dependencyModal: false})} aria-labelledby="dependencyModalTitle">
