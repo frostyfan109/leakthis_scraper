@@ -1,37 +1,41 @@
-PYTHON = python
+PYTHON          := /usr/bin/env python3
+VIRTUALENV_NAME := "venv"
+
+venv: venv.touchfile
+venv.touchfile: requirements.txt
+	test -d venv || ${PYTHON} -m venv $(VIRTUALENV_NAME)
+	. venv/bin/activate
+	touch venv/touchfile
 
 install.web:
 	cd web; \
 	npm install;
 
-install.python:
-	${PYTHON} -m pip install -r requirements.txt
+install.python: venv
+	. venv/bin/activate; ${PYTHON} -m pip install -r requirements.txt --use-deprecated=legacy-resolver
 
-install:
-	install.python install.web
+install: install.python install.web;
 
 run.web:
 	cd web; \
 	npm start;
 
-run.scraper:
-	${PYTHON} main.py
+run.scraper: venv
+	. venv/bin/activate; ${PYTHON} main.py
 
-run.api:
-	${PYTHON} api.py
+run.api: venv
+	. venv/bin/activate; ${PYTHON} api.py
 
-run.conversion_api:
-	${PYTHON} audio_conversion_api.py
+run.conversion_api: venv
+	. venv/bin/activate; ${PYTHON} audio_conversion_api.py
 
-run:
-	run.web run.scraper run.api run.conversion_api
+run: run.web run.scraper run.api run.conversion_api
 
-test.python:
-	${PYTHON} -m pytest tests
+test.python: venv
+	. venv/bin/activate; ${PYTHON} -m pytest tests
 
 test.web:
 	cd web; \
 	npm test;
 
-test:
-	test.python test.web
+test: test.python test.web
