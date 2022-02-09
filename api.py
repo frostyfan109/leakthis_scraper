@@ -1,4 +1,8 @@
 import logging
+import werkzeug
+werkzeug.cached_property = werkzeug.utils.cached_property
+import flask.scaffold
+flask.helpers._endpoint_from_view_func = flask.scaffold._endpoint_from_view_func
 from flask import Flask
 from flask_restplus import Api
 # from flask_sqlalchemy import SQLAlchemy

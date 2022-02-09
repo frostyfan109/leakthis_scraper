@@ -184,7 +184,12 @@ div.filter-container {
   /* border-radius: 100%; */
   /* border: 1px solid black; */
 }
-
+.player-side-container {
+  display: flex;
+  width: 15%;
+  display: none;
+}
+.side-container-right { justify-content: right; }
 .bottom-controls {
   width: 100%;
 }
@@ -260,6 +265,23 @@ div.filter-container {
 }
 .audio-repeat.enabled:hover, .audio-reload:hover {
   filter: brightness(75%);
+}
+.volume-slider-container {
+  height: 8px;
+  width: min(125px, 100%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.volume-slider {
+  height: 2px;
+  min-width: 0;
+}
+.volume-slider::-webkit-slider-thumb {
+  display: none;
+}
+.volume-slider-container:hover > .volume-slider::-webkit-slider-thumb {
+  display: block;
 }
 
 @media (max-width: 576px) {

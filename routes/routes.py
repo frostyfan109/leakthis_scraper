@@ -434,7 +434,7 @@ class Info(Resource):
                 "pid": pid if scraper_running else None,
                 "last_scraped": last_scraped,
                 "last_error": last_error,
-                "most_recent_post": most_recent_post.serialize(),
+                "most_recent_post": most_recent_post.serialize() if most_recent_post else None,
                 "account_info": {
                     "leakthis_username": leakthis_username,
                     "leakthis_password": leakthis_password,

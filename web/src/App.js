@@ -160,6 +160,7 @@ class App extends QueryParamsPageComponent {
                 src={STATIC_URL + "/logo.png"}
                 className="d-inline h-auto"
                 width="100px"
+                alt={process.env.REACT_APP_WEBSITE_NAME}
               />
               {/* {process.env.REACT_APP_WEBSITE_NAME} */}
               </Navbar.Brand>

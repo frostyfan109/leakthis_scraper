@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import ReactDOM from 'react-dom';
 import { Helmet } from 'react-helmet';
-import { FaEye, FaComment, FaTimes, FaThumbtack, FaStepForward, FaStepBackward } from 'react-icons/fa';
+import { FaEye, FaComment, FaTimes, FaThumbtack, FaStepForward, FaStepBackward, FaVolumeUp } from 'react-icons/fa';
 import { IoPlaySkipForwardSharp, IoPlaySkipBackSharp, IoAlertSharp, IoRepeatSharp, IoDownloadSharp, IoRefreshSharp } from 'react-icons/io5';
 import { IoIosPlay as FaPlay, IoIosPause as FaPause } from 'react-icons/io';
 import { Link, withRouter, generatePath } from 'react-router-dom';
@@ -298,7 +298,8 @@ class Post extends QueryParamsPageComponent {
                 {file.file_name} {post.files.length > 1 && `(${this.props.getCurrentTrackPosition() + 1} of ${post.files.length})`}
               </div>
               <div className="bottom-controls d-flex align-items-center">
-                <IoRepeatSharp className={classNames("audio-repeat ml-2", IS_ERROR && "disabled", this.props.repeatEnabled && "enabled")}
+                <div className="player-side-container side-container-right"/>
+                <IoRepeatSharp className={classNames("audio-repeat ml-10", IS_ERROR && "disabled", this.props.repeatEnabled && "enabled")}
                                onClick={() => this.props.toggleRepeat()}/>
                 <IoPlaySkipBackSharp className={classNames("audio-skip ml-2", !this.props.canSkipBackward() && "disabled")} onClick={() => this.props.canSkipBackward() && this.props.skipTrack(-1)}/>
                 {IS_AUDIO ? (
@@ -362,6 +363,17 @@ class Post extends QueryParamsPageComponent {
                   <IoRefreshSharp className="audio-reload mr-2 text-primary"
                                   onClick={() => this.props.reloadPlaying()}/>
                 )}
+                <div className="player-side-container side-container-right">
+                  <div className="volume-slider-container text-muted">
+                    <FaVolumeUp className="mr-2" style={{fontSize: "20px"}}/>
+                    <input
+                      type="range"
+                      className="volume-slider"
+                      min={0}
+                      max={1000}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           )
@@ -433,19 +445,22 @@ class Section extends QueryParamsPageComponent {
       case FileType.ZIP: {
         const zip = new JSZip();
         zip.loading = true;
-        const loadingFailed = (err) => {
-          console.log(err);
-          zip.failed = true;
-          updatePlayingState();
+        zip.loadData = () => {
+          zip.dataLoaded = true;
+          const loadingFailed = (err) => {
+            console.log(err);
+            zip.failed = true;
+            updatePlayingState();
+          }
+          fetch(file.src).then((res) => res.arrayBuffer()).then((buf) => {
+            zip.loadAsync(buf)
+              .then((data) => {
+                zip.loading = false; 
+                updatePlayingState();
+              })
+              .catch(loadingFailed);
+          }).catch(loadingFailed);
         }
-        fetch(file.src).then((res) => res.arrayBuffer()).then((buf) => {
-          zip.loadAsync(buf)
-            .then((data) => {
-              zip.loading = false; 
-              updatePlayingState();
-            })
-            .catch(loadingFailed);
-        }).catch(loadingFailed);
         file.zip = zip;
         break;
       }
@@ -457,23 +472,25 @@ class Section extends QueryParamsPageComponent {
             downloadController: new AbortController(),
             conversionController: new AbortController()
           };
-          const res = await fetch(file.src, {
-            signal: file.audio._abortSignals.downloadController.signal
-          });
-          const audioBlob = await res.blob();
-          if (file.subType === FileSubType.M4A) {
-            try {
-              const mp3Blob = await Api.convertAudio("m4a", "mp3", audioBlob, {
-                signal: file.audio._abortSignals.conversionController.signal
-              });
-              file.audio.src = URL.createObjectURL(mp3Blob);
-            } catch (e) {
-              // Conversion API probably not configured/running.
-              console.error(e);
-              file.audio.failed = true;
+          file.audio.loadData = async () => {
+            const res = await fetch(file.src, {
+              signal: file.audio._abortSignals.downloadController.signal
+            });
+            const audioBlob = await res.blob();
+            if (file.subType === FileSubType.M4A) {
+              try {
+                const mp3Blob = await Api.convertAudio("m4a", "mp3", audioBlob, {
+                  signal: file.audio._abortSignals.conversionController.signal
+                });
+                file.audio.src = URL.createObjectURL(mp3Blob);
+              } catch (e) {
+                // Conversion API probably not configured/running.
+                console.error(e);
+                file.audio.failed = true;
+              }
+            } else {
+              file.audio.src = URL.createObjectURL(audioBlob);
             }
-          } else {
-            file.audio.src = URL.createObjectURL(audioBlob);
           }
           
           file.audio.addEventListener("timeupdate", () => {
@@ -608,7 +625,16 @@ class Section extends QueryParamsPageComponent {
       // Otherwise, just unpause it.
       this.resetPlaying();
     }
-    if (file.type === FileType.AUDIO) file.audio.play();
+    switch (file.type) {
+      case FileType.AUDIO:
+        if (!file.audio.dataLoaded) file.audio.loadData();
+        file.audio.play();
+        break;
+      case FileType.ZIP:
+        if (!file.zip.dataLoaded) file.zip.loadData();
+        break;
+    }
+    // if (file.type === FileType.AUDIO) file.audio.play();
     this.setState({ playing : file });
   }
   resetPlaying() {

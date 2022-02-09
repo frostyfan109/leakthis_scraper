@@ -11,7 +11,9 @@ importlib_metadata==3.10.1
 beautifulsoup4==4.10.0
 Flask==2.0.2
 flask-cors==3.0.10
-flask-socketio
+flask-socketio==4.3.2
+python-socketio==4.6.1
+python-engineio==3.14.2
 flask-httpauth
 google_api_python_client==2.33.0
 jsonpickle==2.0.0
