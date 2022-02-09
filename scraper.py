@@ -56,6 +56,7 @@ def disableable_session_factory(disabled):
     return session
 
 class Scraper:
+    """ To be incremented in the case that the site's database is wiped (resetting native_id and disassociating already scraped posts). """
     LT_DB_VERSION = 2
     SECTIONS = {
         "hip-hop-leaks": {
