@@ -1,3 +1,5 @@
+check_deleted_depth: 50
+check_deleted_interval: 5
 disable_db: false
 initial_pages_scraped: 5
 log_level: INFO

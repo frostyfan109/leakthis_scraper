@@ -26,8 +26,6 @@ export default class QueryParamsComponent extends Component {
 
 export class QueryParamsPageComponent extends QueryParamsComponent {
   @scrollToTop()
-  foobar() {}
-  @scrollToTop()
   setPage(page: any, search: any) {
     const props = this.props as any;
     // console.log(this.props.match.path);
