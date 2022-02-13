@@ -52,6 +52,7 @@ section_entries_parser = api.parser()
 section_entries_parser.add_argument("posts", type=int, help="Posts per page", location="args", default=20)
 section_entries_parser.add_argument("sort_by", type=str, help="Sorting category", location="args", default="latest")
 section_entries_parser.add_argument("hide_pinned", type=inputs.boolean, help="Include/exclude pinned posts", location="args", default=True)
+section_entries_parser.add_argument("hide_deleted", type=inputs.boolean, help="Include/exclude deleted posts", location="args", default=False)
 section_entries_parser.add_argument("prefix_raw_id", type=int, action="append", help="Filter by prefix", location="args", default=None)
 section_entries_parser.add_argument("author", type=str, help="Filter by author", location="args", default=None)
 section_entries_parser.add_argument("query", type=str, help="Search query", location="args", default=None)
@@ -64,6 +65,7 @@ class SectionEntries(Resource):
         per_page = args["posts"]
         sort_by = args["sort_by"]
         hide_pinned = args["hide_pinned"]
+        hide_deleted = args["hide_deleted"]
         prefix_raw_ids = args["prefix_raw_id"]
         author = args["author"]
         query = args["query"]
@@ -77,6 +79,8 @@ class SectionEntries(Resource):
         # 3) LIMIT `per_page`
         # 4) OFFSET `per_page * page`
         def filter_chain(filtered):
+            if hide_deleted:
+                filtered = filtered.filter((Post.deleted == False) | (Post.deleted == None))
             if prefix_raw_ids is not None:
                 for prefix_raw_id in prefix_raw_ids:
                     prefix = session.query(Prefix).filter_by(id=prefix_raw_id).first()
@@ -118,7 +122,7 @@ class SectionEntries(Resource):
 
         num_pages = ceil(non_pinned.count() / per_page)
         # If the page number is greater than the total number of pages, return the last page.
-        if page > num_pages:
+        if page > num_pages - 1:
             # `page` goes from 0 to `num_pages - 1`
             page = num_pages - 1
 
@@ -143,12 +147,34 @@ class Sections(Resource):
 
 @api.route("/prefixes")
 class Prefixes(Resource):
-    # @db_resource
+    @cache.cached(timeout=600, key_prefix=cache_key)
     def get(self):
         session = Flask_Session()
         prefixes = [prefix.serialize() for prefix in session.query(Prefix)]
+        for prefix in prefixes:
+            prefix["post_count"] = session.query(Post).filter(Post.prefixes.contains(prefix["name"])).count()
         session.close()
         return prefixes
+
+user_search_parser = api.parser()
+user_search_parser.add_argument("limit", type=int, help="Result limit", location="args", default=20)
+@api.route("/users/<string:search>")
+class UserSearch(Resource):
+    @cache.cached(timeout=600,key_prefix=cache_key)
+    @api.expect(user_search_parser)
+    def get(self, search):
+        args = user_search_parser.parse_args()
+        limit = args["limit"]
+        session = Flask_Session()
+        users = [user[0] for user in session.query(Post.created_by).distinct().filter(Post.created_by.contains(search)).limit(limit)]
+        session.close()
+        return [
+            {
+                "name": user,
+                "post_count": session.query(Post).filter_by(created_by=user).count()
+            }
+            for user in users
+        ]
 
 drive_files_parser = api.parser()
 drive_files_parser.add_argument("files", type=int, help="Files per page", location="args", default=20)
@@ -549,6 +575,8 @@ config_parser.add_argument("print_posts_scraped", type=inputs.boolean, help="Log
 config_parser.add_argument("log_level", type=str, help="Logging level", location="form", required=False)
 config_parser.add_argument("timeout_interval", type=int, help="Timeout interval", location="form", required=False)
 config_parser.add_argument("update_posts", type=inputs.boolean, help="Update posts", location="form", required=False)
+config_parser.add_argument("check_deleted_interval", type=int, help="Check deleted interval", location="form", required=False)
+config_parser.add_argument("check_deleted_depth", type=int, help="Check deleted depth", location="form", required=False)
 @api.route("/config")
 class Config(Resource):
     """ Update the scraping config """
@@ -561,6 +589,8 @@ class Config(Resource):
         timeout_interval = form.get("timeout_interval")
         update_posts = form.get("update_posts")
         subsequent_pages_scraped = form.get("subsequent_pages_scraped")
+        check_deleted_interval = form.get("check_deleted_interval")
+        check_deleted_depth = form.get("check_deleted_depth")
 
         config = load_config()
 
@@ -580,6 +610,12 @@ class Config(Resource):
 
         if subsequent_pages_scraped is not None:
             config["subsequent_pages_scraped"] = subsequent_pages_scraped
+        
+        if check_deleted_interval is not None:
+            config["check_deleted_interval"] = check_deleted_interval
+
+        if check_deleted_depth is not None:
+            config["check_deleted_depth"] = check_deleted_depth
 
         save_config(config)
 

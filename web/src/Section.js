@@ -5,12 +5,13 @@ import { FaEye, FaComment, FaTimes, FaThumbtack, FaStepForward, FaStepBackward, 
 import { IoPlaySkipForwardSharp, IoPlaySkipBackSharp, IoAlertSharp, IoRepeatSharp, IoDownloadSharp, IoRefreshSharp } from 'react-icons/io5';
 import { IoIosPlay as FaPlay, IoIosPause as FaPause } from 'react-icons/io';
 import { Link, withRouter, generatePath } from 'react-router-dom';
-import { Card, Badge, Form, Button } from 'react-bootstrap';
+import { Card, Badge, Form, Button, Dropdown } from 'react-bootstrap';
 import { toast } from 'react-toastify';
 import Pagination from 'react-js-pagination';
+import { AsyncTypeahead, Highlighter, Token, Typeahead } from 'react-bootstrap-typeahead';
 import Draggable from './Draggable';
 import { POST_COUNT } from './config.js';
-import { QueryParamsPageComponent } from './QueryParams.js';
+import { QueryParamsPageComponent } from './QueryParams';
 import { abbrNum, getFileType, FileType, FileSubType } from './common.js';
 import Api from './Api.js';
 import qs from 'qs';
@@ -198,7 +199,7 @@ class Post extends QueryParamsPageComponent {
 
     }
     return (
-      <Card className={classNames("Post mb-0 mb-md-2", skeleton && "skeleton")}>
+      <Card className={classNames("Post mb-0 mb-md-2", skeleton && "skeleton", post.deleted && "deleted" )}>
         <Card.Body className="p-2 p-sm-3">
           <div className="media align-items-center">
             {/*<img className="mr-3 rounded-circle post-avatar"
@@ -391,8 +392,13 @@ class Section extends QueryParamsPageComponent {
       posts: null,
       pages: null,
       hidePinned: false,
+      hideDeleted: false,
       playing: null,
-      repeat: false
+      repeat: false,
+
+      // Async typeahead state
+      rbtAuthorLoading: false,
+      rbtAuthorOptions: []
     };
 
     this.setPlaying = this.setPlaying.bind(this);
@@ -400,6 +406,7 @@ class Section extends QueryParamsPageComponent {
     this.updateAuthor = this.updateAuthor.bind(this);
     this.clearAuthor = this.clearAuthor.bind(this);
     this.updateHidePinned = this.updateHidePinned.bind(this);
+    this.updateHideDeleted = this.updateHideDeleted.bind(this);
     this.updateSort = this.updateSort.bind(this);
     this.clearPrefix = this.clearPrefix.bind(this);
     this.setPage = this.setPage.bind(this);
@@ -412,6 +419,8 @@ class Section extends QueryParamsPageComponent {
     this.toggleRepeat = this.toggleRepeat.bind(this);
     this.downloadPlaying = this.downloadPlaying.bind(this);
     this.reloadPlaying = this.reloadPlaying.bind(this);
+
+    this.handleAuthorSearch = this.handleAuthorSearch.bind(this);
 
     this.SORT_BY = [
       "latest",
@@ -491,6 +500,7 @@ class Section extends QueryParamsPageComponent {
             } else {
               file.audio.src = URL.createObjectURL(audioBlob);
             }
+            updatePlayingState();
           }
           
           file.audio.addEventListener("timeupdate", () => {
@@ -553,7 +563,8 @@ class Section extends QueryParamsPageComponent {
   }
   reloadPlaying() {
     this.prepareFile(this.state.playing);
-    this.setState({ playing : this.state.playing });
+    this.setFilePlaying(this.state.playing);
+    // this.setState({ playing : this.state.playing });
   }
   downloadPlaying() {
     const a = document.createElement("a");
@@ -676,6 +687,14 @@ class Section extends QueryParamsPageComponent {
       this.updatePosts();
     });
   }
+  updateHideDeleted(e) {
+    e.preventDefault();
+    const value = e.target.checked;
+    localStorage.setItem("hideDeleted", JSON.stringify(value));
+    this.setState({ hideDeleted: value }, () => {
+      this.updatePosts();
+    })
+  }
   updateAuthor(author) {
     this.setQueryParams({"author": author})
   }
@@ -730,27 +749,31 @@ class Section extends QueryParamsPageComponent {
     return this.state.posts === null ? null : this.state.posts.pages
   }
   pagination(upper, args) {
+    const pageRangeDisplayed = 5;
+    const activePage = this.getPage();
+    const itemsCountPerPage = this.state.posts ? this.state.posts.per_page : 0;
+    const totalItemsCount = this.state.posts ? this.state.posts.total : 0;
+    // const itemsCountPerPage = this.state.posts ? this.state.posts.per_page : 1;
+    // const totalItemsCount = this.state.posts ? this.state.posts.total : pageRangeDisplayed * Math.ceil(activePage / pageRangeDisplayed);
     return (
-      this.state.posts !== null && (
-        <Pagination innerClass="pagination"
-                    itemClass="page-item"
-                    linkClass="page-link"
-                    itemClassPrev="page-item-prev"
-                    itemClassNext="page-item-next"
-                    itemClassFirst="page-item-first"
-                    itemClassLast="page-item-last"
-                    prevPageText="«"
-                    nextPageText="»"
-                    firstPageText="First"
-                    lastPageText="Last"
-                    hideFirstLastPages={upper}
-                    activePage={this.getPage()}
-                    itemsCountPerPage={this.state.posts.per_page}
-                    totalItemsCount={this.state.posts.total}
-                    pageRangeDisplayed={5}
-                    onChange={this.setPage}
-                    {...args}/>
-      )
+      <Pagination innerClass="pagination"
+                  itemClass="page-item"
+                  linkClass="page-link"
+                  itemClassPrev="page-item-prev"
+                  itemClassNext="page-item-next"
+                  itemClassFirst="page-item-first"
+                  itemClassLast="page-item-last"
+                  prevPageText="«"
+                  nextPageText="»"
+                  firstPageText="First"
+                  lastPageText="Last"
+                  hideFirstLastPages={upper}
+                  activePage={activePage}
+                  itemsCountPerPage={itemsCountPerPage}
+                  totalItemsCount={totalItemsCount}
+                  pageRangeDisplayed={pageRangeDisplayed}
+                  onChange={this.setPage}
+                  {...args}/>
     );
   }
   _sectionPostsFetchData() {
@@ -761,11 +784,12 @@ class Section extends QueryParamsPageComponent {
     const query = this.props.searchQuery;
     // Page parameter is optional. If it is omitted, it is page 0.
     const page = this.getPage();
-    const { hidePinned } = this.state;
+    const { hidePinned, hideDeleted } = this.state;
     const data = {
       postCount: POST_COUNT,
       sortBy: sort,
       hidePinned,
+      hideDeleted,
       prefix,
       author,
       query
@@ -803,6 +827,14 @@ class Section extends QueryParamsPageComponent {
     } catch (e) {
       if (e.name !== "AbortError") throw e;
     }
+  }
+  async handleAuthorSearch(query) {
+    this.setState({ rbtAuthorLoading : true });
+    const users = await Api.searchUsers(query);
+    this.setState({
+      rbtAuthorOptions: users,
+      rbtAuthorLoading: false
+    });
   }
   componentDidUpdate(prevProps) {
     const searchChanged = this.props.searchQuery !== prevProps.searchQuery;
@@ -842,8 +874,10 @@ class Section extends QueryParamsPageComponent {
   }
   componentDidMount() {
     let hidePinned = JSON.parse(localStorage.getItem("hidePinned"));
+    let hideDeleted = JSON.parse(localStorage.getItem("hideDeleted"));
     if (hidePinned === null) hidePinned = true;
-    this.setState({ hidePinned }, () => {
+    if (hideDeleted === null) hideDeleted = false;
+    this.setState({ hidePinned, hideDeleted }, () => {
       if (this.props.section !== null) {
         this.updatePosts();
       }
@@ -855,9 +889,10 @@ class Section extends QueryParamsPageComponent {
       const minutesAgoCreated = (Date.now() - post.created * 1000) / (1000 * 60);
       if (minutesAgoCreated > 5) {
         console.log(`Skipping post_created for ${post.id} (created ${Math.floor(minutesAgoCreated)} minutes ago).`);
+        return;
       }
       // Only update if the new post is in this section.
-      if (this.props.section?.id === post.section_id) {
+      if (this.props.section && this.props.section.id === post.section_id) {
         // Don't want to refresh the entire page of posts when a new post is made for the following reasons:
         // - The logic gets even more unnecessarily overcomplicated
         // - If the user is listening to the last post on the page, and a new post is made, the last post will disappear
@@ -915,9 +950,6 @@ class Section extends QueryParamsPageComponent {
 
               {this.pagination(true, {innerClass: "pagination p-0 m-0 upper"})}
             </div>
-            <div className="d-flex justify-content-center align-items-center">
-              <Form.Check className="" type="checkbox" label="Hide pinned posts" checked={this.state.hidePinned} onChange={this.updateHidePinned}/>
-            </div>
           </div>
           {/*
           <Pagination>
@@ -930,7 +962,7 @@ class Section extends QueryParamsPageComponent {
           */}
           {
             !skeleton && (
-              <div className="filter-container rounded-top w-100 bg-light p-2 border border-bottom-0" style={{display: noPosts ? "none" : "flex"}}>
+              <div className="filter-container rounded-top w-100 bg-light p-2 border border-bottom-0 d-flex">
                 <div className="filter-tag-container flex-grow-1">
                   {
                     this.parsePrefixes().map((prefix) => (
@@ -954,7 +986,94 @@ class Section extends QueryParamsPageComponent {
                     )
                   }
                 </div>
-                <Form.Control className="sort-select custom-select custom-select-sm w-auto" as="select" onChange={this.updateSort} value={this.getQuery().sort || this.SORT_BY_DEFAULT}>
+                <Dropdown className="filter-dropdown">
+                  <Dropdown.Toggle variant="transparent" className="mt-2" childBsPrefix="btn btn-sm">Filter</Dropdown.Toggle>
+                  <Dropdown.Menu className="shadow shadow-sm">
+                    <Dropdown.Header style={{fontSize: "1rem", color: "black"}}>Filter</Dropdown.Header>
+                    <Dropdown.Divider/>
+                    <Form.Group className="px-3 pt-1">
+                      <Form.Label>Prefix:</Form.Label>
+                      {/* <Form.Control/> */}
+                      <Typeahead
+                        id="prefixSearch"
+                        labelKey="name"
+                        options={this.props.prefixes.sort((a, b) => b.post_count - a.post_count)}
+                        multiple
+                        highlightOnlyResult
+                        onChange={(selections) => {
+                          const currentPrefixes = this.parsePrefixes();
+                          const currentNames = currentPrefixes.map((p) => p.name);
+                          const selectionNames = selections.map((p) => p.name);
+                          const deleted = currentPrefixes.filter((prefix) => !selectionNames.includes(prefix.name));
+                          const added = selections.filter((prefix) => !currentNames.includes(prefix.name));
+                          deleted.forEach((prefix) => this.clearPrefix(prefix.id));
+                          added.forEach((prefix) => this.setPrefix(prefix.id));
+                        }}
+                        selected={this.parsePrefixes()}
+                        renderMenuItemChildren={(prefix, { text }, index) => (
+                          <>
+                          <Badge style={{color: prefix.text_color, backgroundColor: prefix.bg_color}} className="mr-1">
+                            {prefix.name}
+                          </Badge>
+                          <Highlighter search={text}>
+                            {prefix.name}
+                          </Highlighter>
+                          </>
+                        )}
+                        renderToken={(prefix, { onRemove }, index) => (
+                          <Token
+                            key={prefix.name}
+                            onRemove={onRemove}
+                            option={prefix}
+                            className="rbt-prefix-token"
+                            style={{color: prefix.text_color, backgroundColor: prefix.bg_color}}
+                          >
+                            <span class="d-inline badge py-0">{prefix.name}</span>
+                          </Token>
+                        )}
+                      />
+                    </Form.Group>
+                    <Form.Group className="px-3">
+                      <Form.Label>Created by:</Form.Label>
+                      <AsyncTypeahead
+                        id="authorSearch"
+                        labelKey="name"
+                        filterBy={() => true}
+                        isLoading={this.state.rbtAuthorLoading}
+                        // Already cached server-side
+                        useCache={false}
+                        selected={this.getQuery().author ? [this.getQuery().author] : []}
+                        highlightOnlyResult
+                        options={this.state.rbtAuthorOptions.sort((a, b) => b.post_count - a.post_count)}
+                        onSearch={this.handleAuthorSearch}
+                        onChange={(selection)=> selection.length > 0 ? this.updateAuthor(selection[0].name) : this.clearAuthor()}
+                      />
+                    </Form.Group>
+                    <Form.Group className="px-3">
+                      <Form.Label>Sort by:</Form.Label>
+                      <Form.Control className="sort-select custom-select custom-select-sm" as="select" onChange={this.updateSort} value={this.getQuery().sort || this.SORT_BY_DEFAULT}>
+                        {this.SORT_BY.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </Form.Control>
+                    </Form.Group>
+                    <Form.Group className="d-inline-block px-3">
+                      <Form.Check
+                        type="checkbox"
+                        label="Hide pinned"
+                        checked={this.state.hidePinned}
+                        onChange={this.updateHidePinned}
+                      />
+                    </Form.Group>
+                    <Form.Group className="d-inline-block px-3">
+                      <Form.Check
+                        type="checkbox"
+                        label="Hide deleted"
+                        checked={this.state.hideDeleted}
+                        onChange={this.updateHideDeleted}
+                      />
+                    </Form.Group>
+                  </Dropdown.Menu>
+                </Dropdown>
+                <Form.Control className="d-none sort-select custom-select custom-select-sm w-auto" as="select" onChange={this.updateSort} value={this.getQuery().sort || this.SORT_BY_DEFAULT}>
                   {this.SORT_BY.map((option) => <option key={option} value={option}>{option}</option>)}
                 </Form.Control>
               </div>

@@ -56,6 +56,7 @@ class Post(Base):
     body = Column(String, nullable=False)
     html = Column(String, nullable=False)
     pinned = Column(Boolean, nullable=False)
+    deleted = Column(Boolean)
 
     first_scraped = Column(DateTime, default=datetime.now)
     last_updated = Column(DateTime, default=datetime.now)
@@ -82,6 +83,7 @@ class Post(Base):
             "body": self.body,
             "html": self.html,
             "pinned": self.pinned,
+            "deleted": self.deleted,
 
             "files": [f.serialize() for f in self.get_files()],
 

@@ -9,6 +9,7 @@ import momentDurationFormatSetup from 'moment-duration-format';
 import 'nantes/css/animate.css';
 import 'nantes/css/style.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
+import 'react-bootstrap-typeahead/css/Typeahead.css';
 // import 'nantes/css/owl.carousel.css';
 // import 'nantes/css/owl.theme.default.min.css';
 

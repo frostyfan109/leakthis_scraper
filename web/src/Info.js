@@ -33,10 +33,14 @@ export default class Info extends Component {
     this.canvasMounted = this.canvasMounted.bind(this);
     this.updateTimeoutInterval = this.updateTimeoutInterval.bind(this);
     this.updateSubsequentPagesScraped = this.updateSubsequentPagesScraped.bind(this);
+    this.updateCheckDeletedInterval = this.updateCheckDeletedInterval.bind(this);
+    this.updateCheckDeletedDepth = this.updateCheckDeletedDepth.bind(this);
 
     this.debounceUpdateInfo = debounce(this.updateInfo, 300);
     this.debounceUpdateTimeoutInterval = debounce((value) => this.updateConfig({timeout_interval: value}), 500);
     this.debounceUpdateSubsequentPagesScraped = debounce((value) => this.updateConfig({subsequent_pages_scraped: value}), 500);
+    this.debounceUpdateCheckDeletedInterval = debounce((value) => this.updateConfig({ check_deleted_interval: value }), 500);
+    this.debounceUpdateCheckDeletedDepth = debounce((value) => this.updateConfig({ check_deleted_depth: value }), 500);
   }
   async rangeChanged(e) {
     this.setState({ range: e.target.value, loadingGraph: true });
@@ -57,6 +61,20 @@ export default class Info extends Component {
     configTemp.scraper_config.subsequent_pages_scraped = value;
     this.setState({ configTemp });
     this.debounceUpdateSubsequentPagesScraped(value);
+  }
+  updateCheckDeletedInterval(e) {
+    const { value } = e.target;
+    const { configTemp } = this.state;
+    configTemp.scraper_config.check_deleted_interval = value;
+    this.setState({ configTemp });
+    this.debounceUpdateCheckDeletedInterval(value);
+  }
+  updateCheckDeletedDepth(e) {
+    const { value } = e.target;
+    const { configTemp } = this.state;
+    configTemp.scraper_config.check_deleted_depth = value;
+    this.setState({ configTemp });
+    this.debounceUpdateCheckDeletedDepth(value);
   }
   async updateInfo() {
     const data = await this.props.updateInfo({ sort: this.state.scrapeGraphSort, range: this.state.range });
@@ -81,8 +99,9 @@ export default class Info extends Component {
       configLoading[option] = true;
     });
     this.setState({ configLoading });
-    await Api.updateConfig(options);
-    await this.updateInfo();
+    const newConfig = await Api.updateConfig(options);
+    // await this.updateInfo();
+    await this.props.updateConfig(newConfig);
     configLoading = this.state.configLoading;
     Object.keys(options).forEach((option) => {
       configLoading[option] = false;
@@ -405,7 +424,7 @@ export default class Info extends Component {
                     </td>
                   </tr>
                   <tr>
-                    <td>Timeout interval</td>
+                    <td>Scraping timeout</td>
                     <td>
                       <Form.Control className="w-auto"
                                     size="sm"
@@ -433,6 +452,30 @@ export default class Info extends Component {
                                     value={this.state.configTemp.scraper_config.subsequent_pages_scraped}
                                     onChange={this.updateSubsequentPagesScraped}
                                     disabled={this.state.configLoading.subsequent_pages_scraped}>
+                      </Form.Control>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Deleted check interval</td>
+                    <td>
+                      <Form.Control className="w-auto"
+                                    size="sm"
+                                    type="number"
+                                    value={this.state.configTemp.scraper_config.check_deleted_interval}
+                                    onChange={this.updateCheckDeletedInterval}
+                                    disabled={this.state.configLoading.check_deleted_interval}>
+                      </Form.Control>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Deleted check depth</td>
+                    <td>
+                      <Form.Control className="w-auto"
+                                    size="sm"
+                                    type="number"
+                                    value={this.state.configTemp.scraper_config.check_deleted_depth}
+                                    onChange={this.updateCheckDeletedDepth}
+                                    disabled={this.state.configLoading.check_deleted_depth}>
                       </Form.Control>
                     </td>
                   </tr>

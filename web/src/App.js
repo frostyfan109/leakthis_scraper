@@ -30,6 +30,7 @@ class App extends QueryParamsPageComponent {
     this.isActive = this.isActive.bind(this);
     this.brandClicked = this.brandClicked.bind(this);
     this.getInfo = this.getInfo.bind(this);
+    this.updateConfig = this.updateConfig.bind(this);
     this._getUpdatePostsAborter = this._getUpdatePostsAborter.bind(this);
     
     this.updateSearchParam = debounce(this.updateSearchParam.bind(this), 250);
@@ -124,6 +125,11 @@ class App extends QueryParamsPageComponent {
     const info = await Api.getInfo(options);
     this.setState({ info });
   }
+  updateConfig(newConfig) {
+    const { info } = this.state;
+    info.scraper_config = newConfig;
+    this.setState({ info });
+  }
   _getUpdatePostsAborter() {
     if (this._updatePostsController) this._updatePostsController.abort();
     this._updatePostsController = new AbortController();
@@ -214,7 +220,7 @@ class App extends QueryParamsPageComponent {
               </Route>
             )}
             <Route path="/info">
-              <Info info={this.state.info} updateInfo={this.getInfo}/>
+              <Info info={this.state.info} updateInfo={this.getInfo} updateConfig={this.updateConfig}/>
             </Route>
             <Route path="/drive-info">
               <DriveInfo info={this.state.info} searchQuery={this.state.realSearchQuery}/>

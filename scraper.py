@@ -7,6 +7,7 @@ import json
 import os
 import pickle
 import portalocker
+import math
 from dotenv import load_dotenv
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -228,6 +229,24 @@ class Scraper:
         logger.info(f"Retrying {unknown_files.count()} unknown files.")
         for file in unknown_files:
             self.retry_file(file)
+        session.commit()
+        session.close()
+
+    def check_deleted_posts(self):
+        logger.info("Checking for deleted posts.")
+        num_posts = self.config["check_deleted_depth"]
+        session = self.create_db_session()
+        posts = session.query(Post).order_by(Post.created.desc())[0:num_posts]
+        for post in posts:
+            # Don't bother checking again.
+            if post.deleted: continue
+            # These requests are being made synchronously, so it would be problematic for the requests to hang.
+            # This could pretty easily be made async with aiohttp, but that should be ideally be done with a complete
+            # async rewrite of the scraper.
+            res = self.session.get(post.url, timeout=3)
+            if res.status_code == 404:
+                logger.info(f"Marking post \"{post.title}\" as deleted.")
+                post.deleted = True
         session.commit()
         session.close()
 
@@ -580,6 +599,7 @@ class Scraper:
         
 
     def scrape(self, sections, callback):
+        last_checked_deleted = datetime.now()
         # Scrape `pages` pages initially. Then only check the first page afterwards.
         if len(sections) == 0:
             raise Exception("Scraping sections cannot be empty.")
@@ -593,6 +613,10 @@ class Scraper:
                     logger.info(f"Scraping first {pages} pages for section '{section}'.")
                     self.scrape_posts(section, pages, callback)
                 self.retry_unknown_files()
+                minutes_since_last_checked_deleted = math.floor((datetime.now() - last_checked_deleted).seconds / 60)
+                if minutes_since_last_checked_deleted >= self.config["check_deleted_interval"]:
+                    last_checked_deleted = datetime.now()
+                    self.check_deleted_posts()
                 # Pages should be >1 on first loop (where you want to scrape extra to catch up with when the scraper wasn't running)
                 # Set the pages back to only 1 after first loop to avoid scraping these extra pages again, because it's extremely unlikely
                 # that enough posts to overflow the first page will be posted between scraping timeouts after catching up on the first loop.

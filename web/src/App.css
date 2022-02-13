@@ -53,6 +53,19 @@ div.filter-container {
 .filter-container > *:first-child {
   margin-left: .5rem!important;
 } */
+.filter-dropdown .dropdown-menu {
+  min-width: 300px;
+}
+.filter-dropdown .dropdown-menu > div > label {
+  font-size: .875rem;
+}
+.filter-dropdown .dropdown-menu > .form-group > * {
+  display: block !important;
+}
+.filter-dropdown .dropdown-menu > .form-group > .form-check {
+  display: flex !important;
+  align-items: center;
+}
 .sort-select {
   /* margin: .5rem!important; */
   margin-top: .5rem!important;
@@ -60,10 +73,27 @@ div.filter-container {
 /* .sort-select:first-child {
   margin-left: auto!important;
 } */
+.rbt-prefix-token > .rbt-token-label {
+  padding-right: 0 !important;
+  display: flex;
+  align-items: center;
+}
+.rbt-prefix-token > button {
+  margin-bottom: 2.5px;
+}
 
 .pagination > * {
   padding-bottom: 0;
 }
+
+.Post {
+  position: relative;
+}
+.Post.deleted {
+  background: rgba(255, 0, 0, .1);
+  border: 1px solid var(--danger);
+}
+
 .Post:first-child {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
@@ -146,6 +176,13 @@ div.filter-container {
   align-items: center;
   width: 39px;
   height: 39px;
+}
+.Post.deleted .inner-player-container {
+  background-color: rgb(255, 230, 230) !important;
+}
+.Post.deleted .audio-player-controls {
+  border-color: var(--secondary) !important;
+  background-color: rgb(249,224,225) !important;
 }
 .outer-player-container .audio-player {
   transition: all .1s ease-in-out;
@@ -316,6 +353,12 @@ div.filter-container {
   .Post:nth-child(even) {
     background-color: var(--light);
   }
+  /* .filter-dropdown {
+    position: static !important;
+  }
+  .filter-dropdown .dropdown-menu {
+    width: 90% !important;
+  } */
 }
 .loading::after {
   content: '';

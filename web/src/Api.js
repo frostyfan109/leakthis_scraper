@@ -3,10 +3,10 @@ import { API_URL as BASE_URL, CONVERSION_API_URL as CONVERSION_BASE_URL, OMIT_UN
 
 export class Api {
   async getSectionPosts(sectionName, page, query, fetchOptions={}) {
-    const { postCount, sortBy, hidePinned, prefix, author, query: searchQuery } = query;
+    const { postCount, sortBy, hidePinned, hideDeleted, prefix, author, query: searchQuery } = query;
     page -= 1; // api starts pages at 0
     const queryString = qs.stringify(
-      { posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, prefix_raw_id: prefix, author, query: searchQuery },
+      { posts: postCount, sort_by: sortBy, hide_pinned: hidePinned, hide_deleted: hideDeleted, prefix_raw_id: prefix, author, query: searchQuery },
       { arrayFormat: "repeat" }
     );
     const res = await fetch(`${BASE_URL}/section/${sectionName}/${page}?${queryString}`, fetchOptions);
@@ -59,6 +59,11 @@ export class Api {
       body: data
     });
     return await res.json();
+  }
+  async searchUsers(query, limit=20) {
+    const res = await fetch(`${BASE_URL}/users/${query}?${qs.stringify({ limit })}`);
+    const users = await res.json();
+    return users;
   }
   async getDownloadUrl(file) {
     return `${BASE_URL}/download/${file.id}`;
