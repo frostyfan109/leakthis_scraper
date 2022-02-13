@@ -247,7 +247,7 @@ class Post extends QueryParamsPageComponent {
                     <a href="javascript:void(0);" className="d-inline-block" onClick={() => !skeleton && this.props.setPrefix(prefix.id)}>
                       <span className="d-flex justify-content-center align-items-center">
                         {/* Badge has 3px margin-y on default. Add 2px to margin-top so adjust for text alignment. */}
-                        <Badge style={{color: prefix.text_color, backgroundColor: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>{prefix.name}</Badge>
+                        <Badge style={{color: prefix.text_color, background: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>{prefix.name}</Badge>
                       </span>
                     </a>
                     &nbsp;
@@ -912,7 +912,7 @@ class Section extends QueryParamsPageComponent {
           <h6>New post in {this.props.section.name}</h6>
           <hr className="mt-1 mb-2"/>
           {post.prefixes.map((prefix) => (
-            <Badge className="mr-1" style={{color: prefix.text_color, backgroundColor: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>
+            <Badge className="mr-1" style={{color: prefix.text_color, background: prefix.bg_color, fontSize: ".75rem", paddingTop: "5px"}}>
               {prefix.name}
             </Badge>
           ))}
@@ -927,6 +927,10 @@ class Section extends QueryParamsPageComponent {
     this.state.posts && this.state.posts.posts.forEach((post) => this.cleanupFiles(post));
   }
   render() {
+    if (this.getPage() <= 0) {
+      this.setPage(1);
+      return null;
+    }
     const skeleton = this.skeleton();
     const noPosts = this.state.posts !== null && this.state.posts.posts.length === 0;
     return (
@@ -1012,7 +1016,7 @@ class Section extends QueryParamsPageComponent {
                         selected={this.parsePrefixes()}
                         renderMenuItemChildren={(prefix, { text }, index) => (
                           <>
-                          <Badge style={{color: prefix.text_color, backgroundColor: prefix.bg_color}} className="mr-1">
+                          <Badge style={{color: prefix.text_color, background: prefix.bg_color}} className="mr-1">
                             {prefix.name}
                           </Badge>
                           <Highlighter search={text}>
@@ -1026,7 +1030,7 @@ class Section extends QueryParamsPageComponent {
                             onRemove={onRemove}
                             option={prefix}
                             className="rbt-prefix-token"
-                            style={{color: prefix.text_color, backgroundColor: prefix.bg_color}}
+                            style={{color: prefix.text_color, background: prefix.bg_color}}
                           >
                             <span class="d-inline badge py-0">{prefix.name}</span>
                           </Token>
