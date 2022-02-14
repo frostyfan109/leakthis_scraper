@@ -15,7 +15,7 @@ from tinycss2 import parse_stylesheet, parse_declaration_list
 from urllib.parse import urlparse, parse_qsl
 from PIL import Image
 from io import BytesIO
-from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError
+from exceptions import AuthenticationError, MissingEnvironmentError, ConfigError, UnknownHostingServiceError
 from db import session_factory, Post, File, Prefix
 from drive import upload_file, get_direct_url, get_drive_breakdown
 from config import load_config, load_credentials
@@ -36,8 +36,6 @@ DEFAULT_CONFIG = {
     "initial_pages_scraped": 2,
     "subsequent_pages_scraped": 1
 }
-
-static_dir = get_env_var("STATIC_DIRECTORY")
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__file__)
@@ -85,9 +83,12 @@ class Scraper:
             "description": "A place to discuss hip-hop, both commercial releases and leaks."
         }
     }
+    base_url = "https://leaked.cx"
     def __init__(self, credentials=None):
-        self.base_url = "https://leaked.cx"
         self.token_expires = None
+        # Load env
+        self.status_file_path = get_env_var("STATUS_PATH")
+        self.static_dir = get_env_var("STATIC_DIRECTORY")
         # `configure_config` is designed such that self.config is initially None,
         # but it is set to DEFAULT_CONFIG for now in case the config file is invalid.
         self.config = DEFAULT_CONFIG
@@ -154,6 +155,9 @@ class Scraper:
         }
         res = self.session.post(self.base_url + "/login/login", data=data)
         assert_is_ok(res)
+        # Included for testing purposes (not necessary typically).
+        # - There seems to be a bug with requests_mock that does not properly update session cookies when a request is mocked.
+        self.session.cookies.update(res.cookies)
         for cookie in self.session.cookies:
             if cookie.name == "xf_user":
                 self.token_expires = cookie.expires
@@ -210,7 +214,11 @@ class Scraper:
             downloaded_file = downloaded_files[0]
             if downloaded_file.get("unknown"):
                 # Still unknown
-                file.retries += 1
+                if not isinstance(downloaded_file.get("exception"), UnknownHostingServiceError):
+                    # Only increase retries if the service is unrecognized.
+                    # Other errors are indicative of an underlying issue with the associated hosting service
+                    # and may resolve with another try.
+                    file.retries += 1
             else:
                 file.unknown = False
                 file.file_name = downloaded_file["file_name"]
@@ -380,22 +388,26 @@ class Scraper:
         prefix_class_names = prefix_tag.find("span")["class"]
 
         # Scrape CSS for prefix colors
-        style_url = soup.find("link", rel="stylesheet", href=re.compile(r"^/css\.php\?css=public%3Anotices\.less"))["href"]
-        res = self.session.get(self.base_url + style_url)
-        assert_is_ok(res)
-        stylesheet = parse_stylesheet(res.content.decode("utf-8"))
+        style_urls = soup.find_all("link", rel="stylesheet")
         style_rules = {}
-        for rule in stylesheet:
-            if not hasattr(rule, "prelude"): continue
-            selector = "".join([token.serialize() for token in rule.prelude])
-            if selector == "." + ".".join(prefix_class_names):
-                declarations = parse_declaration_list(rule.content)
-                for declaration in declarations:
-                    style_rules[declaration.name] = "".join([token.serialize() for token in declaration.value])
-                break
+        for style_url in style_urls:
+            url = style_url["href"]
+            if urlparse(url).netloc == "":
+                url = self.base_url + url
+            res = self.session.get(url)
+            assert_is_ok(res)
+            stylesheet = parse_stylesheet(res.content.decode("utf-8"))
+            for rule in stylesheet:
+                if not hasattr(rule, "prelude"): continue
+                selector = "".join([token.serialize() for token in rule.prelude])
+                if selector == "." + ".".join(prefix_class_names):
+                    declarations = parse_declaration_list(rule.content)
+                    for declaration in declarations:
+                        style_rules[declaration.name] = "".join([token.serialize() for token in declaration.value])
+                    break
 
         text_color = style_rules.get("color")
-        bg_color = style_rules.get("background-color")
+        bg_color = style_rules.get("background-color") or style_rules.get("background")
 
         prefix = Prefix(
             prefix_id=prefix_id,
@@ -570,7 +582,7 @@ class Scraper:
 
         # Make sure the static directory exists.
         try:
-            os.mkdir(static_dir)
+            os.mkdir(self.static_dir)
         except FileExistsError:
             pass
 
@@ -582,14 +594,14 @@ class Scraper:
         assert_is_ok(res)
         # Ensure that the logo is saved as a PNG, regardless of the original format.
         logo_img = Image.open(BytesIO(res.content))
-        logo_img.save(os.path.join(static_dir, "logo.png")) 
+        logo_img.save(os.path.join(self.static_dir, "logo.png")) 
         
         # Download favicon
         # The favicon url isn't relative.
         res = requests.get(urls["favicon_url"])
         assert_is_ok(res)
         favicon_img = Image.open(BytesIO(res.content))
-        favicon_img.save(os.path.join(static_dir, "favicon.ico"))
+        favicon_img.save(os.path.join(self.static_dir, "favicon.ico"))
 
         session.close()
         return {
@@ -658,16 +670,16 @@ class Scraper:
 
     def get_status_data(self):
         try:
-            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "r") as fh:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), self.status_file_path), "r") as fh:
                 return json.load(fh)
         except:
-            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as fh:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), self.status_file_path), "w+") as fh:
                 data = {}
                 fh.write(json.dumps(data))
                 return data
 
     def set_status_data(self, status_data):
-        with portalocker.Lock(os.path.join(os.path.dirname(__file__), "status.json"), "w+") as fh:
+        with portalocker.Lock(os.path.join(os.path.dirname(__file__), self.status_file_path), "w+") as fh:
             json.dump(status_data, fh)
 
     def update_status(self, **kwargs):

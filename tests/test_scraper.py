@@ -1,10 +1,8 @@
-from main import Scraper
 import requests
+import os
 from bs4 import BeautifulSoup
+from main import Scraper
+from .mocks import *
 
-def test_parse_prefix():
-    scraper = Scraper()
-    # res = requests.get("https://leakth.is/forums/hip-hop-discussion.46/")
-    # soup = BeautifulSoup(res.content, "html.parser")
-    # prefix_tag = soup.select_one(".structItem--thread").select_one(".structItem-title").find("a", class_="labelLink")
-    # scraper.parse_prefix(soup, prefix_tag)
+def test_parse_prefix(mock_scraper):
+    pass

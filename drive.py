@@ -173,6 +173,7 @@ def get_storage_quota(project_id=None):
 
 
 def get_storage_breakdown(storage_cache):
+    update_storage_cache(load_storage_cache())
     storage_breakdown = []
     for project_id in storage_cache:
         val = storage_cache[project_id]
@@ -195,7 +196,3 @@ Storage breakdown ({DRIVE_STORAGE_CUTOFF * 100}% cutoff):
 
 def get_all_files(project_id):
     return get_drive(project_id).ListFile().GetList()
-
-
-# Update the storage cache on application start to reflect changes to active drive accounts.
-update_storage_cache(load_storage_cache())

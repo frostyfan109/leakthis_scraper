@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.types import TypeDecorator, String, Unicode
 from datetime import datetime
 from commons import get_mimetype
-from drive import get_direct_url
+from drive import get_direct_url, get_file as get_drive_file
 from url_parser import URLParser
 
 # Have absolutely no idea if setting check_same_thread to False is safe,
@@ -66,6 +66,15 @@ class Post(Base):
 
     def get_prefix(self, prefix_name):
         return persistent_session.query(Prefix).filter_by(name=prefix_name).first()
+
+    def delete(self):
+        for file in self.get_files():
+            if not file.unknown:
+                drive_file = get_drive_file(file.drive_project_id, file.drive_id)
+                drive_file.Delete()
+            persistent_session.delete(file)
+        persistent_session.delete(self)
+        persistent_session.commit()
 
     def serialize(self):
         return {

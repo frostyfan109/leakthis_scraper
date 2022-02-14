@@ -25,7 +25,7 @@ from urllib.parse import urlencode
 from api import app, api, cache, Flask_Session
 from db import Post, File, Prefix
 from url_parser import Hosts
-from commons import get_mimetype
+from commons import get_mimetype, get_env_var
 from config import load_config, save_config
 from main import Scraper
 from exceptions import AuthenticationError
@@ -40,6 +40,7 @@ from pydrive.files import ApiRequestError
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
+STATUS_FILE_PATH = get_env_var("STATUS_PATH")
 
 def cache_key():
     args = request.args
@@ -122,7 +123,7 @@ class SectionEntries(Resource):
 
         num_pages = ceil(non_pinned.count() / per_page)
         # If the page number is greater than the total number of pages, return the last page.
-        if page > num_pages - 1:
+        if num_pages != 0 and page > num_pages - 1:
             # `page` goes from 0 to `num_pages - 1`
             page = num_pages - 1
 
@@ -256,7 +257,7 @@ class Info(Resource):
         except FileNotFoundError:
             scraper_running = False
         try:
-            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "../", "status.json"), "r") as fh:
+            with portalocker.Lock(os.path.join(os.path.dirname(__file__), "../", STATUS_FILE_PATH), "r") as fh:
                 status_data = json.load(fh)
         except FileNotFoundError:
             status_data = {}

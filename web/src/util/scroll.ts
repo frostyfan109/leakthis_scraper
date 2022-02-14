@@ -1,5 +1,5 @@
 /**
- * Decorator that scrolls to the top of the page.
+ * Decorator that scrolls to specified coordinates of the page.
  *     Scrolling will occur after the wrapped function takes place (promise-friendly).
  * 
  * @param {number|Function} [top] - The y-value of the window to scroll to.
@@ -25,6 +25,12 @@ export function scrollTo(top?: number|Function, left?: number|Function, behavior
         return descriptor;
     }
 }
-export function scrollToTop(...args: any[]): Function {
-    return scrollTo(0, ...args);
+/**
+ * Decorator that scrolls to the top of the page using @scrollTo.
+ * 
+ * @see scrollTo
+ * @decorator
+ */
+export function scrollToTop(left?: number|Function, behavior?: ScrollBehavior): Function {
+    return scrollTo(0, left, behavior);
 }
