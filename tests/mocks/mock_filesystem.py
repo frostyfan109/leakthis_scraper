@@ -44,9 +44,9 @@ class FileMocker:
     def create_tmp_file(self, file_path, value=None):
         file_path = os.path.abspath(file_path)
         tmp_path = self.tmp_path / os.path.relpath(file_path)
+        dir_head = os.path.split(tmp_path)[0]
+        os.makedirs(dir_head, exist_ok=True)
         if value is not None:
-            dir_head = os.path.split(tmp_path)[0]
-            os.makedirs(dir_head, exist_ok=True)
             mode = "wb+" if isinstance(value, bytes) else "w+"
             with self._open(tmp_path, mode) as fh:
                 fh.write(value)
@@ -66,12 +66,19 @@ class FileMocker:
         return self._open(mocked_path, *args, **kwargs)
 
 
-
+""" Mocking should always be enabled on the filesystem. """
 @pytest.fixture
 def file_mocker(monkeypatch, tmpdir):
     f_mocker = FileMocker(monkeypatch, tmpdir, {
-        "enabled": MOCKING
+        "enabled": True
     })
-    if not MOCKING:
-        return MockedObject(f_mocker)
     return f_mocker
+
+# @pytest.fixture
+# def file_mocker(monkeypatch, tmpdir):
+#     f_mocker = FileMocker(monkeypatch, tmpdir, {
+#         "enabled": MOCKING
+#     })
+#     if not MOCKING:
+#         return MockedObject(f_mocker)
+#     return f_mocker

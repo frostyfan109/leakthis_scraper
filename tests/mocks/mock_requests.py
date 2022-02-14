@@ -5,6 +5,7 @@ from .util import MockedObject
 from .mock_env import MOCKING
 from .requests.base import GET_BASE
 from .requests.login import POST_LOGIN
+from .requests.static import GET_LOGO, GET_FAVICON
 from scraper import Scraper
 
 base_url = Scraper.base_url
@@ -39,3 +40,8 @@ class MockRequest:
         GET = GET(base_url, GET_BASE)
     class Login:
         POST = POST(base_url + "/login/login", POST_LOGIN)
+    class Static:
+        class Logo:
+            GET = lambda url: GET(url, GET_LOGO)
+        class Favicon:
+            GET = lambda url: GET(url, GET_FAVICON)

@@ -13,11 +13,12 @@ DRIVE_DIR = "drive_tmp"
 class DriveFile:
     def __init__(self, drive, data):
         self.__drive = drive
-        self.title = data.get("title")
-        self.content = data.get("content", BytesIO())
+        self.content = data.get("content")
         self.id = data.get("id", str(uuid4()))
     def Upload(self):
         self.__drive._upload(self)
+    def FetchContent(self):
+        self.content = self.__drive._get_file(self)
     def InsertPermission(self, *args, **kwargs):
         pass
     def __getitem__(self, key):
@@ -27,10 +28,19 @@ class Drive:
         self.file_mocker = file_mocker
         self.project_id = project_id
     
+    def _get_file_path(self, drive_file):
+        return os.path.join(DRIVE_DIR, self.project_id, drive_file.id)
+
     def _upload(self, drive_file):
-        file_path = os.path.join(DRIVE_DIR, self.project_id, drive_file.id)
+        file_path = self._get_file_path(drive_file)
+        # `drive_file.content` must be defined to invoke `drive_file.Upload`
         drive_file.content.seek(0)
         self.file_mocker.mock_file(file_path, drive_file.content.read())
+    
+    def _get_file(self, drive_file):
+        file_path = self._get_file_path(drive_file)
+        with open(file_path, "rb") as f:
+            return BytesIO(f.read())
     
     @property
     def mocked_files(self):
@@ -55,6 +65,7 @@ class Drive:
 def get_drive(file_mocker, project_id):
     return Drive(file_mocker, project_id)
 
+""" Mocking should always be enabled on Google Drive. """
 @pytest.fixture
 def mock_drive(file_mocker, mock_env, monkeypatch):
     file_mocker.mock_file("settings.yaml")
@@ -70,6 +81,7 @@ def mock_drive(file_mocker, mock_env, monkeypatch):
     file_mocker._mock_file(fp, tmp_path)
     mock_env("DRIVE_CREDENTIALS_FILE", fp)
 
-    if not MOCKING: return
+    # file_mocker and mock_env already take $MOCKING into account. The following does not.
+    # if not MOCKING: return
 
     monkeypatch.setattr("drive.get_drive", lambda project_id: get_drive(file_mocker, project_id))

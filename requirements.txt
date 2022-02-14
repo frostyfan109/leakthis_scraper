@@ -32,3 +32,4 @@ portalocker
 pillow
 pytest-mock
 requests-mock
+alchemy-mock

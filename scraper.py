@@ -572,7 +572,8 @@ class Scraper:
         favicon_url = soup.select_one("head link[rel='icon']")["href"]
 
         return {
-            "logo_url": logo_url,
+            "logo_url": self.base_url + logo_url,
+            # The favicon url isn't relative.
             "favicon_url": favicon_url
         }
 
@@ -590,14 +591,13 @@ class Scraper:
         
         """ Download static assets. """
         # Download logo
-        res = requests.get(self.base_url + urls["logo_url"])
+        res = requests.get(urls["logo_url"])
         assert_is_ok(res)
         # Ensure that the logo is saved as a PNG, regardless of the original format.
         logo_img = Image.open(BytesIO(res.content))
         logo_img.save(os.path.join(self.static_dir, "logo.png")) 
         
         # Download favicon
-        # The favicon url isn't relative.
         res = requests.get(urls["favicon_url"])
         assert_is_ok(res)
         favicon_img = Image.open(BytesIO(res.content))
