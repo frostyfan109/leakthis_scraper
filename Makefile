@@ -32,7 +32,8 @@ run.conversion_api: venv
 run: run.web run.scraper run.api run.conversion_api
 
 test.python: venv
-	. venv/bin/activate; ${PYTHON} -m pytest tests
+	. venv/bin/activate; export TESTING=true&&export TESTS_MOCKING=true&&${PYTHON} -m pytest tests; \
+	export TESTING=true&&export TESTS_MOCKING=false&&${PYTHON} -m pytest tests
 
 test.web:
 	cd web; \

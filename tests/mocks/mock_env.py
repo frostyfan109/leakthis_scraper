@@ -10,7 +10,7 @@ try:
 except MissingEnvironmentError:
     MOCKING = False
 
-""" Mocking should always be enabled on the environment. """
+""" Mocking should always be enabled on the environment unless otherwise specified (handled by caller). """
 @pytest.fixture
 def mock_env(monkeypatch):
     def _mocker(name, val):

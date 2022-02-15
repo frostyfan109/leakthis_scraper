@@ -56,6 +56,15 @@ class FileMocker:
     def whitelist_file(self, file_path):
         self.mocked_files[file_path] = file_path
 
+    """ Whitelist every file in a directory. `recursive` will whitelist subdirectories recursively. """
+    def whitelist_directory(self, path, recursive=False):
+        for f_or_dir in os.listdir(path):
+            is_dir = os.path.isdir(os.path.join(path, f_or_dir))
+            if not is_dir:
+                self.whitelist_file(os.path.join(path, f_or_dir))
+            elif recursive:
+                self.whitelist_directory(os.path.join(path, f_or_dir))
+
     def mock_open(self, file_path, *args, **kwargs):
         _fp = file_path
         file_path = os.path.abspath(file_path)

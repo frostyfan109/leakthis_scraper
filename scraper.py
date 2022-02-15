@@ -547,13 +547,17 @@ class Scraper:
             """
             traceback.print_exc()
             self.log_critical(e)
+            if os.environ.get("TESTING"): raise e
         return post_ids
+
+    def resolve_section_url(self, section):
+        return self.base_url + "/forums" + self.get_section_url(section)
 
     # @update_session
     def scrape_posts(self, section, pages, callback=None):
         posts = []
         for i in range(pages):
-            url = self.base_url + "/forums" + self.get_section_url(section)
+            url = self.resolve_section_url(section)
             if i > 0:
                 url += "/page-" + str(i+1) +"/"
             # Order posts by when they were created, not by most recent activity.
